@@ -1,0 +1,45 @@
+{
+  "name": "mercado-pg-gestor",
+  "version": "1.0.0",
+  "description": "Gestor de Stock con funciones extras - Versión Electron",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "rebuild": "electron-builder install-app-deps",
+    "seed": "electron src/seed-database.js"
+  },
+  "keywords": [
+    "stock",
+    "gestor",
+    "inventario",
+    "electron"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^12.6.0",
+    "docx": "^9.5.1",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.2"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.2",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.mercadopg.gestor",
+    "productName": "MercadoPG Gestor",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.ico"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+Data/
+*.db
+.DS_Store
+obj/
+bin/
+*.csproj
+*.sln
+*.cs
+*.xaml
+*.xaml.cs
+AssemblyInfo.cs
+Views/
+ViewModels/
+Helpers/
