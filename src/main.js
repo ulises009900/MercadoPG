@@ -308,6 +308,35 @@ ipcMain.on('open-scanner-window', (event, codigo) => {
   });
 });
 
+// Abrir ayuda
+ipcMain.on('open-help', (event) => {
+  const message = `ATAJOS DE TECLADO
+
+Navegación:
+• Flechas ↑/↓: Navegar por las listas
+• Esc: Cerrar ventanas / Cancelar
+• F1: Ver esta ayuda
+
+Acciones Principales:
+• F2: Nuevo Artículo
+• F3 / Enter: Editar Artículo
+• Supr: Eliminar Artículo
+• F5: Actualizar datos
+• F6 o (+): Registrar Entrada Stock
+• F7 o (-): Registrar Salida Stock
+• F4: Ver Historial
+• F8: Ver Ranking
+• F9: Ver Faltantes`;
+
+  dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+    type: 'info',
+    title: 'Ayuda - MercadoPG',
+    message: 'Guía de Atajos',
+    detail: message,
+    buttons: ['Entendido']
+  });
+});
+
 // Configuración guardada
 ipcMain.on('config-saved', () => {
   BrowserWindow.getAllWindows().forEach(win => {
@@ -390,6 +419,15 @@ ipcMain.on('reload-data', (event, ...args) => {
   BrowserWindow.getAllWindows().forEach(win => {
     if (!win.isDestroyed()) {
       win.webContents.send('reload-data', ...args);
+    }
+  });
+});
+
+// Difundir vista previa de tema en tiempo real
+ipcMain.on('preview-theme', (event, theme) => {
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('preview-theme', theme);
     }
   });
 });

@@ -45,11 +45,74 @@ class MainController {
     // 2. Botón para generar documento avanzado (Esta función necesitará refactorización si usa 'fs' o 'path')
     // document.getElementById('btnGenerarDoc').addEventListener('click', () => this.generarDocumentoAvanzado());
 
-    // Atajo de teclado F5 para actualizar
+    // Atajos de teclado Globales
     document.addEventListener('keydown', (e) => {
+      // F5: Actualizar siempre disponible
       if (e.key === 'F5') {
         e.preventDefault(); // Evitar recarga predeterminada de la ventana
         this.actualizarTablaCompleta();
+        return;
+      }
+
+      // F2: Nuevo Artículo
+      if (e.key === 'F2') {
+        e.preventDefault();
+        this.nuevoArticulo();
+        return;
+      }
+
+      // Si el foco está en un input (buscador), no interceptamos flechas ni letras
+      const activeElement = document.activeElement;
+      const isInput = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
+
+      if (isInput) {
+        if (e.key === 'Escape') {
+          activeElement.blur(); // Salir del buscador con Escape
+          document.body.focus();
+        }
+        return;
+      }
+
+      // Navegación y acciones de tabla (cuando no se está escribiendo)
+      switch(e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          this.navegarTabla(1);
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          this.navegarTabla(-1);
+          break;
+        case 'Enter':
+        case 'F3':
+          e.preventDefault();
+          this.editarArticulo();
+          break;
+        case 'Delete':
+          this.eliminarArticulo();
+          break;
+        case 'F4':
+          this.verHistorial();
+          break;
+        case 'F6':
+        case '+': // Numpad +
+          e.preventDefault();
+          this.registrarEntrada();
+          break;
+        case 'F7':
+        case '-': // Numpad -
+          e.preventDefault();
+          this.registrarSalida();
+          break;
+        case 'F1':
+          this.mostrarAyuda();
+          break;
+        case 'F8':
+          this.verRanking();
+          break;
+        case 'F9':
+          this.verFaltantes();
+          break;
       }
     });
 
@@ -119,6 +182,13 @@ class MainController {
           this.seleccionarArticulo(row, this.articulos.find(a => a.codigo === codigo));
         }
       }
+    });
+
+    // Escuchar vista previa de tema
+    this.api.on('preview-theme', (theme) => {
+      document.documentElement.style.setProperty('--background-color', theme.colorFondo);
+      document.documentElement.style.setProperty('--primary-color', theme.colorPrimario);
+      document.documentElement.style.setProperty('--foreground-color', theme.colorTexto);
     });
   }
 
@@ -210,6 +280,39 @@ class MainController {
   }
 
   /**
+   * Navega por la tabla con el teclado
+   * @param {number} direccion - 1 para abajo, -1 para arriba
+   */
+  navegarTabla(direccion) {
+    if (this.articulosFiltrados.length === 0) return;
+
+    let nuevoIndex = 0;
+    
+    // Si hay seleccionados, buscar el índice del último seleccionado
+    if (this.seleccionados.length > 0) {
+      const ultimoSeleccionado = this.seleccionados[this.seleccionados.length - 1];
+      const indexActual = this.articulosFiltrados.findIndex(a => a.codigo === ultimoSeleccionado.codigo);
+      
+      if (indexActual !== -1) {
+        nuevoIndex = indexActual + direccion;
+      }
+    }
+
+    // Validar límites
+    if (nuevoIndex < 0) nuevoIndex = 0;
+    if (nuevoIndex >= this.articulosFiltrados.length) nuevoIndex = this.articulosFiltrados.length - 1;
+
+    // Seleccionar visualmente
+    const articulo = this.articulosFiltrados[nuevoIndex];
+    const row = document.querySelector(`tr[data-codigo="${articulo.codigo}"]`);
+    
+    if (row) {
+      this.seleccionarArticulo(row, articulo);
+      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  /**
    * Calcula los precios final y en USD para un artículo
    * @param {Object} articulo - Datos del artículo
    * @returns {Object} - { precioFinal, precioUsd }
@@ -245,13 +348,19 @@ class MainController {
       if (index > -1) {
         this.seleccionados.splice(index, 1);
         row.classList.remove('selected');
+        row.style.backgroundColor = '';
       } else {
         this.seleccionados.push(articulo);
         row.classList.add('selected');
+        row.style.backgroundColor = '#0a6183'; // Celeste
       }
     } else {
-      document.querySelectorAll('tbody tr').forEach(tr => tr.classList.remove('selected'));
+      document.querySelectorAll('tbody tr').forEach(tr => {
+        tr.classList.remove('selected');
+        tr.style.backgroundColor = '';
+      });
       row.classList.add('selected');
+      row.style.backgroundColor = '#0a6183'; // Celeste
       this.seleccionados = [articulo];
     }
   }
@@ -425,6 +534,13 @@ class MainController {
    */
   abrirConfig() {
     this.api.send('open-config');
+  }
+
+  /**
+   * Muestra la ayuda de atajos
+   */
+  mostrarAyuda() {
+    this.api.send('open-help');
   }
 
   /**

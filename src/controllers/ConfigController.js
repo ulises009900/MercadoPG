@@ -56,7 +56,7 @@ class ConfigController {
       const input = document.getElementById(item.id);
       if (input) {
         input.addEventListener('input', (e) => {
-          document.documentElement.style.setProperty(item.prop, e.target.value);
+          this.actualizarTemaEnTiempoReal();
         });
       }
     });
@@ -139,7 +139,25 @@ class ConfigController {
       setVal('colorPrimario', '#0078D4');
       setVal('colorTexto', '#2C3E50');
       setVal('cotizacionUsd', 1000);
+      
+      this.actualizarTemaEnTiempoReal();
     }
+  }
+
+  actualizarTemaEnTiempoReal() {
+    const theme = {
+      colorFondo: document.getElementById('colorFondo').value,
+      colorPrimario: document.getElementById('colorPrimario').value,
+      colorTexto: document.getElementById('colorTexto').value
+    };
+    
+    // Aplicar localmente
+    document.documentElement.style.setProperty('--background-color', theme.colorFondo);
+    document.documentElement.style.setProperty('--primary-color', theme.colorPrimario);
+    document.documentElement.style.setProperty('--foreground-color', theme.colorTexto);
+
+    // Difundir a otras ventanas
+    this.api.send('preview-theme', theme);
   }
 
   async aplicarIvaMasivo() {

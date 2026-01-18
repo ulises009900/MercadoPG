@@ -31,6 +31,13 @@ class ScannerController {
         if (this.codigo) this.cargarDatos(this.codigo);
       }
     });
+
+    // Escuchar vista previa de tema
+    this.api.on('preview-theme', (theme) => {
+      document.documentElement.style.setProperty('--background-color', theme.colorFondo);
+      document.documentElement.style.setProperty('--primary-color', theme.colorPrimario);
+      document.documentElement.style.setProperty('--foreground-color', theme.colorTexto);
+    });
   }
 
   setupEventListeners() {
@@ -46,7 +53,21 @@ class ScannerController {
     
     // Cerrar con tecla Escape
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') window.close();
+      if (e.key === 'Escape') {
+        // Si hay modal abierto (accionPendiente), cerramos modal. Si no, cerramos ventana.
+        if (this.accionPendiente) {
+          this.cerrarModal();
+        } else {
+          window.close();
+        }
+      }
+
+      // Atajos rápidos si no hay modal abierto
+      if (!this.accionPendiente) {
+        if (e.key === 'F2') this.modificar();
+        if (e.key === 'F3') this.vender();
+        if (e.key === 'F4') this.agregar();
+      }
     });
 
     // Cerrar con botón (si existe)

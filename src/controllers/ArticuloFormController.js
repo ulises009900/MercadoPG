@@ -38,6 +38,13 @@ class ArticuloFormController {
       this.calcularPrecios();
     });
 
+    // Escuchar vista previa de tema
+    this.api.on('preview-theme', (theme) => {
+      document.documentElement.style.setProperty('--background-color', theme.colorFondo);
+      document.documentElement.style.setProperty('--primary-color', theme.colorPrimario);
+      document.documentElement.style.setProperty('--foreground-color', theme.colorTexto);
+    });
+
     // Calcular precios iniciales (por si hay valores por defecto)
     this.calcularPrecios();
   }
@@ -58,6 +65,11 @@ class ArticuloFormController {
     document.getElementById('articuloForm').addEventListener('submit', (e) => this.guardar(e));
     document.getElementById('btnGuardarNuevo').addEventListener('click', (e) => this.guardar(e, true));
     document.getElementById('btnCancelar').addEventListener('click', () => window.close());
+    
+    // Cerrar con Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') window.close();
+    });
     
     // Eventos para cálculo de precios en tiempo real
     ['costo', 'ganancia', 'iva'].forEach(id => {
