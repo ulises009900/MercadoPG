@@ -20,6 +20,7 @@ let historialWindow = null;
 let rankingWindow = null;
 let faltantesWindow = null;
 let configWindow = null;
+let scannerWindow = null;
 
 // Variables temporales para pasar datos entre ventanas
 let tempHistorialCodigo = null;
@@ -55,6 +56,9 @@ function createMainWindow() {
 function createArticuloFormWindow(codigo = null) {
   if (articuloFormWindow) {
     articuloFormWindow.focus();
+    if (codigo) {
+      articuloFormWindow.webContents.send('load-articulo', codigo);
+    }
     return;
   }
 
@@ -270,11 +274,47 @@ ipcMain.on('open-config', () => {
   createConfigWindow();
 });
 
+// Abrir ventana de escáner (Acción Rápida)
+ipcMain.on('open-scanner-window', (event, codigo) => {
+  // Si la ventana ya existe, la traemos al frente y actualizamos el código
+  if (scannerWindow && !scannerWindow.isDestroyed()) {
+    scannerWindow.show();
+    scannerWindow.focus();
+    scannerWindow.webContents.send('load-scanner-articulo', codigo);
+    return;
+  }
+
+  // Crear la ventana si no existe
+  scannerWindow = new BrowserWindow({
+    width: 600,
+    height: 500,
+    title: 'Escáner - Acción Rápida',
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  scannerWindow.loadFile(path.join(__dirname, 'views', 'scanner.html'));
+
+  scannerWindow.webContents.on('did-finish-load', () => {
+    scannerWindow.webContents.send('load-scanner-articulo', codigo);
+  });
+
+  scannerWindow.on('closed', () => {
+    scannerWindow = null;
+  });
+});
+
 // Configuración guardada
 ipcMain.on('config-saved', () => {
-  if (mainWindow) {
-    mainWindow.webContents.send('reload-data');
-  }
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('reload-data');
+    }
+  });
 });
 
 // Manejador genérico para llamadas a servicios
@@ -343,4 +383,13 @@ ipcMain.handle('get-image-data-url', (event, filePath) => {
     console.error('Error al leer imagen para data URL:', error);
     return null;
   }
+});
+
+// Difundir evento reload-data a todas las ventanas
+ipcMain.on('reload-data', (event, ...args) => {
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('reload-data', ...args);
+    }
+  });
 });

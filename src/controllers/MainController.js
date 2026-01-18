@@ -22,11 +22,8 @@ class MainController {
    */
   async init() {
     this.setupEventListeners();
-    await this.aplicarTema();
-    await this.cargarDatos();
-
-    // Actualizar cotización al inicio
-    this.actualizarDolar();
+    // Cargar datos y actualizar cotización al inicio (modo silencioso)
+    await this.actualizarTablaCompleta(true);
   }
 
   /**
@@ -44,8 +41,17 @@ class MainController {
     document.getElementById('btnFaltantes').addEventListener('click', () => this.verFaltantes());
     document.getElementById('btnExportar').addEventListener('click', () => this.exportar());
     document.getElementById('btnConfig').addEventListener('click', () => this.abrirConfig());
+    document.getElementById('btnActualizar').addEventListener('click', () => this.actualizarTablaCompleta());
     // 2. Botón para generar documento avanzado (Esta función necesitará refactorización si usa 'fs' o 'path')
     // document.getElementById('btnGenerarDoc').addEventListener('click', () => this.generarDocumentoAvanzado());
+
+    // Atajo de teclado F5 para actualizar
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'F5') {
+        e.preventDefault(); // Evitar recarga predeterminada de la ventana
+        this.actualizarTablaCompleta();
+      }
+    });
 
     // Búsqueda
     const searchInput = document.getElementById('searchInput');
@@ -56,17 +62,57 @@ class MainController {
       }, 300);
     });
 
+    // Detectar escaneo (Enter) para abrir pantalla rápida
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const texto = e.target.value.trim();
+        if (!texto) return;
+
+        // 1. Buscar coincidencia exacta de código
+        let articulo = this.articulos.find(a => String(a.codigo) === texto);
+
+        // 2. Si no es exacto, buscar si hay un ÚNICO resultado coincidente (por código parcial o descripción)
+        if (!articulo) {
+          const coincidencias = this.articulos.filter(art => 
+            String(art.codigo).toLowerCase().includes(texto.toLowerCase()) ||
+            art.descripcion.toLowerCase().includes(texto.toLowerCase())
+          );
+          if (coincidencias.length === 1) articulo = coincidencias[0];
+        }
+
+        if (articulo) {
+          e.preventDefault(); // Evitar comportamiento por defecto
+          this.api.send('open-scanner-window', articulo.codigo); // Abrir la nueva pantalla
+          e.target.select(); // Seleccionar texto para facilitar el siguiente escaneo
+        } else {
+          // Si no existe ni es único, verificamos si es una búsqueda general (coincide con descripción)
+          const esBusqueda = this.articulos.some(a => a.descripcion.toLowerCase().includes(texto.toLowerCase()));
+          
+          // Si NO coincide con nada, asumimos que es un código nuevo escaneado
+          if (!esBusqueda) {
+            if (confirm(`El artículo con código "${texto}" no existe.\n¿Desea cargarlo ahora?`)) {
+              e.preventDefault();
+              this.api.send('open-articulo-form', { codigo: texto, nuevo: true });
+              e.target.select();
+            }
+          }
+        }
+      }
+    });
+
     // Escuchar eventos de actualización
     this.api.on('reload-data', async (codigo) => {
       await this.aplicarTema();
       await this.cargarDatos();
 
+      // Restaurar búsqueda si existe para mantener el filtro visual
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput && searchInput.value.trim() !== '') {
+        this.buscar(searchInput.value);
+      }
+
       // Si recibimos un código (nuevo artículo o editado), lo buscamos y resaltamos
       if (codigo && typeof codigo === 'string') {
-        // Limpiar búsqueda visualmente ya que cargarDatos resetea el filtro
-        const searchInput = document.getElementById('searchInput');
-        if (searchInput) searchInput.value = '';
-
         const row = document.querySelector(`tr[data-codigo="${codigo}"]`);
         if (row) {
           row.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -257,6 +303,18 @@ class MainController {
       return;
     }
     this.api.send('open-articulo-form', this.seleccionados[0].codigo);
+  }
+
+  /**
+   * Actualiza todos los datos de la tabla y la cotización
+   */
+  async actualizarTablaCompleta(silencioso = false) {
+    await this.aplicarTema();
+    await this.cargarDatos();
+    await this.actualizarDolar();
+    if (!silencioso) {
+      this.mostrarNotificacion('✓ Tabla actualizada correctamente', 'success');
+    }
   }
 
   /**

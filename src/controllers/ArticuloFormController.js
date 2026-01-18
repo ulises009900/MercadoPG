@@ -14,13 +14,28 @@ class ArticuloFormController {
     await this.cargarCombos();
     
     // Escuchar si es edición o nuevo artículo
-    this.api.on('load-articulo', (codigo) => {
-      if (codigo) {
-        this.codigoEdicion = codigo;
+    this.api.on('load-articulo', (data) => {
+      // Caso 1: Edición (recibe string con el código)
+      if (typeof data === 'string' && data) {
+        this.codigoEdicion = data;
         document.getElementById('formTitle').textContent = 'Editar Artículo';
         document.getElementById('codigo').readOnly = true;
-        this.cargarDatos(codigo);
+        this.cargarDatos(data);
+      } 
+      // Caso 2: Nuevo con código escaneado (recibe objeto)
+      else if (data && typeof data === 'object' && data.nuevo) {
+        document.getElementById('codigo').value = data.codigo || '';
+        if (data.codigo) this.renderizarBarcode(data.codigo);
+        // Mantenemos codigoEdicion en null para que al guardar sea un INSERT
+        // Poner foco en descripción para agilizar la carga
+        setTimeout(() => document.getElementById('descripcion').focus(), 100);
       }
+    });
+
+    // Escuchar cambios globales (configuración, tema, etc.)
+    this.api.on('reload-data', async () => {
+      await this.cargarConfiguracion();
+      this.calcularPrecios();
     });
 
     // Calcular precios iniciales (por si hay valores por defecto)
@@ -31,6 +46,10 @@ class ArticuloFormController {
     const result = await this.api.invoke('service-call', 'ConfigService', 'obtenerTodas');
     if (result.success) {
       this.config = result.data;
+      // Aplicar tema visual
+      document.documentElement.style.setProperty('--background-color', this.config.colorFondo);
+      document.documentElement.style.setProperty('--primary-color', this.config.colorPrimario);
+      document.documentElement.style.setProperty('--foreground-color', this.config.colorTexto);
     }
   }
 
@@ -85,9 +104,6 @@ class ArticuloFormController {
     });
 
     document.getElementById('imagenInput').addEventListener('change', (e) => this.procesarImagen(e));
-
-    // Generación de Código de Barras
-    document.getElementById('btnGenerarBarcode').addEventListener('click', () => this.generarBarcodeAleatorio());
 
     // Botones rápidos (Funcionales con Modal)
     document.getElementById('btnNuevaMarca').addEventListener('click', () => this.abrirModal('marca'));
@@ -224,12 +240,6 @@ class ArticuloFormController {
     document.getElementById('precioFinalUsd').textContent = `US$ ${precioUsd.toFixed(2)}`;
   }
 
-  generarBarcodeAleatorio() {
-    const codigo = Math.floor(Math.random() * 1000000000000).toString(); // Solo números
-    document.getElementById('codigo').value = codigo;
-    this.renderizarBarcode(codigo);
-  }
-
   renderizarBarcode(codigo) {
     const canvas = document.getElementById('barcodeCanvas');
     
@@ -264,11 +274,7 @@ class ArticuloFormController {
     if (!this.validarCampos()) return;
     
     try {
-      // 2. Generar código aleatorio si no existe
       let codigo = document.getElementById('codigo').value.trim();
-      if (!codigo) {
-        codigo = Date.now().toString(); // Generación numérica basada en tiempo
-      }
 
       // Validar duplicados si es nuevo artículo
       if (!this.codigoEdicion) {
@@ -324,7 +330,7 @@ class ArticuloFormController {
 
   validarCampos() {
     let esValido = true;
-    const requeridos = ['descripcion', 'costo', 'ganancia', 'stock', 'stockMinimo'];
+    const requeridos = ['codigo', 'descripcion', 'costo', 'ganancia', 'stock', 'stockMinimo'];
     
     requeridos.forEach(id => {
       const el = document.getElementById(id);
