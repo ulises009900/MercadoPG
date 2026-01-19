@@ -15,6 +15,7 @@ class ConfigController {
       document.body.style.overflowY = 'auto';
 
       await this.cargarConfiguracion();
+      this.renderBackupControls(); // Agregar controles de backup
       
       // Ajustar tamaño de ventana para asegurar que se vea todo el contenido
       // Usamos el alto disponible de la pantalla con un margen, o 900px si es grande
@@ -190,6 +191,63 @@ class ConfigController {
         this.api.send('reload-data'); // Recargar tablas abiertas
       } catch (error) {
         alert('Error al actualizar: ' + error.message);
+      }
+    }
+  }
+
+  /**
+   * Renderiza controles de backup en el formulario
+   */
+  renderBackupControls() {
+    const form = document.getElementById('configForm');
+    if (!form || document.getElementById('backupControlsSection')) return;
+
+    const fieldset = document.createElement('fieldset');
+    fieldset.id = 'backupControlsSection';
+    fieldset.style.marginTop = '20px';
+    fieldset.style.border = '1px solid #ddd';
+    fieldset.style.padding = '10px';
+    fieldset.innerHTML = `
+      <legend style="font-weight:bold; padding: 0 5px;">Copias de Seguridad</legend>
+      <div class="form-group">
+        <p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
+          El sistema realiza copias automáticas al cerrar y restaura la última al iniciar.
+        </p>
+        <div style="display: flex; gap: 10px;">
+          <button type="button" id="btnCrearRespaldo" style="padding: 8px 15px; cursor: pointer;">💾 Crear Respaldo Ahora</button>
+          <button type="button" id="btnAbrirCarpeta" style="padding: 8px 15px; cursor: pointer; background-color: #f39c12; color: white; border: none;">📂 Abrir Carpeta</button>
+          <button type="button" id="btnRestaurarRespaldo" style="padding: 8px 15px; cursor: pointer; background-color: #e74c3c; color: white; border: none;">↺ Restaurar Último</button>
+        </div>
+      </div>
+    `;
+
+    // Insertar antes de los botones de acción
+    const buttonsContainer = form.querySelector('.buttons') || form.lastElementChild;
+    form.insertBefore(fieldset, buttonsContainer);
+
+    document.getElementById('btnCrearRespaldo').addEventListener('click', () => this.crearRespaldoManual());
+    document.getElementById('btnAbrirCarpeta').addEventListener('click', () => this.abrirCarpetaRespaldos());
+    document.getElementById('btnRestaurarRespaldo').addEventListener('click', () => this.restaurarRespaldoManual());
+  }
+
+  async crearRespaldoManual() {
+    const result = await this.api.invoke('service-call', 'BackupService', 'crearRespaldo');
+    if (result.success) alert('✓ Respaldo creado correctamente');
+    else alert('Error: ' + result.error);
+  }
+
+  async abrirCarpetaRespaldos() {
+    await this.api.invoke('service-call', 'BackupService', 'abrirCarpeta');
+  }
+
+  async restaurarRespaldoManual() {
+    if (confirm('⚠️ ¿Restaurar el último respaldo?\nSe perderán los cambios no guardados en la sesión actual.')) {
+      const result = await this.api.invoke('service-call', 'BackupService', 'restaurarUltimoRespaldo', true);
+      if (result.success) {
+        alert('✓ Base de datos restaurada. Los datos se han actualizado.');
+        this.api.send('reload-data');
+      } else {
+        alert('Error: ' + result.error);
       }
     }
   }

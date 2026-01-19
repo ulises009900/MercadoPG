@@ -8,6 +8,7 @@ const CategoriaService = require('./CategoriaService');
 const StockService = require('./StockService');
 const ConfigService = require('./ConfigService');
 const ExportService = require('./ExportService');
+const BackupService = require('./BackupService');
 
 module.exports = {
   ArticuloService,
@@ -16,5 +17,6 @@ module.exports = {
   CategoriaService,
   StockService,
   ConfigService,
-  ExportService
+  ExportService,
+  BackupService
 };

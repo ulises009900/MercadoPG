@@ -84,6 +84,85 @@ class ExportService {
     
     return filePath;
   }
+
+  /**
+   * Exporta datos a un documento de Word (.docx)
+   * @param {Array} datos - Lista de objetos con los datos
+   * @param {Array} columnas - Definición de columnas { key, label }
+   * @param {string} filePath - Ruta donde guardar
+   */
+  async exportarWord(datos, columnas, filePath) {
+    try {
+      // Requerimos docx aquí para no bloquear la app si no está instalada
+      const { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType, BorderStyle, PageOrientation, VerticalAlign, TextRun, AlignmentType, TableLayoutType } = require('docx');
+
+      // Helper para alineación (Números a la derecha, texto a la izquierda)
+      const getAlignment = (key) => {
+        const k = key.toLowerCase();
+        if (k.includes('precio') || k.includes('costo') || k.includes('stock')) return AlignmentType.RIGHT;
+        return AlignmentType.LEFT;
+      };
+
+      // 1. Crear encabezados
+      const headerCells = columnas.map(col => new TableCell({
+        children: [new Paragraph({ 
+          children: [new TextRun({ text: col.label, bold: true, size: 22 })], // 11pt
+          alignment: AlignmentType.CENTER
+        })],
+        shading: { fill: "E0E0E0" }, // Fondo gris claro
+        verticalAlign: VerticalAlign.CENTER,
+        margins: { top: 120, bottom: 120, left: 100, right: 100 } // Padding interno (espacio)
+      }));
+
+      const tableRows = [new TableRow({ children: headerCells, tableHeader: true })];
+
+      // 2. Crear filas de datos
+      datos.forEach(item => {
+        const cells = columnas.map(col => new TableCell({
+          children: [new Paragraph({ 
+            children: [new TextRun({ text: String(item[col.key] || ''), size: 20 })], // 10pt
+            alignment: getAlignment(col.key)
+          })],
+          verticalAlign: VerticalAlign.CENTER,
+          margins: { top: 80, bottom: 80, left: 80, right: 80 } // Padding interno
+        }));
+        tableRows.push(new TableRow({ children: cells }));
+      });
+
+      // Determinar orientación de página basada en cantidad de columnas
+      // Si hay muchas columnas, usamos horizontal (Landscape)
+      const orientation = columnas.length > 5 ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT;
+
+      // 3. Crear documento
+      const doc = new Document({
+        sections: [{
+          properties: {
+            page: {
+              margin: { top: 720, right: 720, bottom: 720, left: 720 }, // Márgenes estrechos (aprox 1.27cm)
+              orientation: orientation
+            }
+          },
+          children: [
+            new Paragraph({ text: "Reporte de Inventario", heading: "Heading1" }),
+            new Paragraph({ text: `Generado el: ${new Date().toLocaleString()}` }),
+            new Paragraph({ text: "" }), // Espacio
+            new Table({ 
+              rows: tableRows, 
+              layout: { type: TableLayoutType.AUTOFIT },
+              width: { size: 0, type: WidthType.AUTO }
+            })
+          ],
+        }],
+      });
+
+      // 4. Guardar archivo
+      const buffer = await Packer.toBuffer(doc);
+      fs.writeFileSync(filePath, buffer);
+      return filePath;
+    } catch (error) {
+      throw new Error('Error al generar Word (¿instalaste "docx"?): ' + error.message);
+    }
+  }
 }
 
 module.exports = new ExportService();

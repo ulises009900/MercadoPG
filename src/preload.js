@@ -38,5 +38,6 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   showOpenDialog: () => ipcRenderer.invoke('show-open-dialog'),
+  showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),
   getImageAsDataUrl: (filePath) => ipcRenderer.invoke('get-image-data-url', filePath)
 });

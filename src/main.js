@@ -21,6 +21,8 @@ let rankingWindow = null;
 let faltantesWindow = null;
 let configWindow = null;
 let scannerWindow = null;
+let exportWindow = null;
+let tempExportData = []; // Variable temporal para pasar datos a la ventana de exportación
 
 // Variables temporales para pasar datos entre ventanas
 let tempHistorialCodigo = null;
@@ -203,12 +205,50 @@ function createConfigWindow() {
 }
 
 /**
+ * Crea ventana de exportación
+ */
+function createExportWindow() {
+  if (exportWindow) {
+    exportWindow.focus();
+    return;
+  }
+
+  exportWindow = new BrowserWindow({
+    width: 450,
+    height: 600,
+    parent: mainWindow,
+    modal: true,
+    title: 'Generar Reporte Word',
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  exportWindow.loadFile(path.join(__dirname, 'views', 'export.html'));
+
+  exportWindow.on('closed', () => {
+    exportWindow = null;
+    tempExportData = []; // Limpiar memoria
+  });
+}
+
+/**
  * Event Handlers
  */
 
 // Cuando la app está lista
 app.whenReady().then(async () => {
   try {
+    // 1. Restaurar último respaldo antes de iniciar (Requerimiento: "tome siempre la ultima copia al inisiar")
+    console.log('Verificando copias de seguridad...');
+    const restoreResult = services.BackupService.restaurarUltimoRespaldo(false);
+    if (restoreResult.success) {
+      console.log('✓ Base de datos restaurada desde:', restoreResult.source);
+    }
+
     // Inicializar base de datos
     await db.initialize();
     
@@ -230,8 +270,16 @@ app.whenReady().then(async () => {
 // Cuando todas las ventanas están cerradas
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    // Cerrar DB y crear respaldo (Requerimiento: "aga una copia al serrar")
     db.close();
-    app.quit();
+    
+    services.BackupService.crearRespaldo().then(res => {
+      if (res.success) console.log('✓ Respaldo creado al cerrar:', res.path);
+      else console.error('Error creando respaldo al cerrar:', res.error);
+    }).catch(err => console.error(err)).finally(() => {
+      app.quit();
+    });
+    
   }
 });
 
@@ -272,6 +320,17 @@ ipcMain.on('open-faltantes', () => {
 // Abrir ventana de configuración
 ipcMain.on('open-config', () => {
   createConfigWindow();
+});
+
+// Abrir ventana de exportación (recibe los datos de la tabla)
+ipcMain.on('open-export-window', (event, data) => {
+  tempExportData = data || [];
+  createExportWindow();
+});
+
+// La ventana de exportación pide los datos cuando carga
+ipcMain.handle('get-export-data', () => {
+  return tempExportData;
 });
 
 // Abrir ventana de escáner (Acción Rápida)
@@ -398,6 +457,11 @@ ipcMain.handle('show-open-dialog', async (event) => {
     ]
   });
   return result;
+});
+
+ipcMain.handle('show-save-dialog', async (event, options) => {
+  const { canceled, filePath } = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender), options);
+  return canceled ? null : filePath;
 });
 
 ipcMain.handle('get-image-data-url', (event, filePath) => {

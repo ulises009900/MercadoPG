@@ -42,8 +42,9 @@ class MainController {
     document.getElementById('btnExportar').addEventListener('click', () => this.exportar());
     document.getElementById('btnConfig').addEventListener('click', () => this.abrirConfig());
     document.getElementById('btnActualizar').addEventListener('click', () => this.actualizarTablaCompleta());
-    // 2. Botón para generar documento avanzado (Esta función necesitará refactorización si usa 'fs' o 'path')
-    // document.getElementById('btnGenerarDoc').addEventListener('click', () => this.generarDocumentoAvanzado());
+    // Botón para generar documento Word
+    const btnDoc = document.getElementById('btnGenerarDoc');
+    if (btnDoc) btnDoc.addEventListener('click', () => this.generarDocumentoAvanzado());
 
     // Atajos de teclado Globales
     document.addEventListener('keydown', (e) => {
@@ -527,6 +528,15 @@ class MainController {
     } else {
       this.mostrarNotificacion('Error al exportar: ' + result.error, 'error');
     }
+  }
+
+  /**
+   * Genera un documento de Word con opciones de columnas
+   */
+  async generarDocumentoAvanzado() {
+    // Enviamos los datos actuales (filtrados) a la nueva ventana de opciones
+    // Esto permite que si filtraste por "Samsung", solo exportes "Samsung"
+    this.api.send('open-export-window', this.articulosFiltrados);
   }
 
   /**
