@@ -125,6 +125,12 @@ class ArticuloFormController {
     // Eventos del Modal
     document.getElementById('btnModalCancel').addEventListener('click', () => this.cerrarModal());
     document.getElementById('btnModalSave').addEventListener('click', () => this.guardarModal());
+
+    // Botón para descargar imagen del código de barras
+    const btnDescargarBarcode = document.getElementById('btnDescargarBarcode');
+    if (btnDescargarBarcode) {
+      btnDescargarBarcode.addEventListener('click', () => this.descargarBarcode());
+    }
   }
 
   async cargarCombos() {
@@ -277,6 +283,35 @@ class ArticuloFormController {
     } catch (error) {
       // Ignorar errores silenciosamente mientras se escribe
       // console.error(error);
+    }
+  }
+
+  async descargarBarcode() {
+    const codigo = document.getElementById('codigo').value;
+    if (!codigo) {
+      alert('Debe existir un código para generar la imagen.');
+      return;
+    }
+
+    const canvas = document.getElementById('barcodeCanvas');
+    // Aseguramos que el canvas tenga el dibujo actualizado
+    this.renderizarBarcode(codigo);
+    
+    const dataUrl = canvas.toDataURL('image/png');
+
+    const filePath = await this.api.showSaveDialog({
+      title: 'Guardar Código de Barras',
+      defaultPath: `barcode_${codigo}.png`,
+      filters: [{ name: 'Imagen PNG', extensions: ['png'] }]
+    });
+
+    if (filePath) {
+      const result = await this.api.invoke('service-call', 'ExportService', 'guardarImagen', filePath, dataUrl);
+      if (result.success) {
+        alert('Imagen guardada correctamente.');
+      } else {
+        alert('Error al guardar la imagen: ' + result.error);
+      }
     }
   }
 

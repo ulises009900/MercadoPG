@@ -163,6 +163,19 @@ class ExportService {
       throw new Error('Error al generar Word (¿instalaste "docx"?): ' + error.message);
     }
   }
+
+  /**
+   * Guarda una imagen desde Data URL (Base64)
+   * @param {string} filePath - Ruta donde guardar
+   * @param {string} dataUrl - String en formato data:image/png;base64,...
+   */
+  guardarImagen(filePath, dataUrl) {
+    // Remover el encabezado del Data URL para obtener solo el base64
+    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, 'base64');
+    fs.writeFileSync(filePath, buffer);
+    return filePath;
+  }
 }
 
 module.exports = new ExportService();
