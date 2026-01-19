@@ -7,7 +7,10 @@ class HistorialController {
     this.api = window.api;
     this.config = {};
     this.movimientos = [];
+    this.movimientosFiltrados = [];
     this.seleccionadoIndex = -1;
+    this.marcasMap = new Map();
+    this.proveedoresMap = new Map();
     this.init();
   }
 
@@ -36,6 +39,23 @@ class HistorialController {
   setupEventListeners() {
     document.getElementById('btnCerrar').addEventListener('click', () => {
       window.close();
+    });
+
+    const searchInput = document.getElementById('searchInput');
+    const fechaDesde = document.getElementById('fechaDesde');
+    const fechaHasta = document.getElementById('fechaHasta');
+    const btnLimpiarFechas = document.getElementById('btnLimpiarFechas');
+
+    if (searchInput) {
+      searchInput.addEventListener('input', () => this.aplicarFiltros());
+    }
+
+    if (fechaDesde) fechaDesde.addEventListener('change', () => this.aplicarFiltros());
+    if (fechaHasta) fechaHasta.addEventListener('change', () => this.aplicarFiltros());
+    if (btnLimpiarFechas) btnLimpiarFechas.addEventListener('click', () => {
+      fechaDesde.value = '';
+      fechaHasta.value = '';
+      this.aplicarFiltros();
     });
 
     document.addEventListener('keydown', (e) => {
@@ -69,53 +89,126 @@ class HistorialController {
     const methodName = this.codigo ? 'historial' : 'historialCompleto';
     const args = this.codigo ? [this.codigo] : [];
 
-    const movRes = await this.api.invoke('service-call', serviceName, methodName, ...args);
+    // Cargar datos en paralelo: Movimientos, Marcas y Proveedores
+    const [movRes, marcasRes, provRes] = await Promise.all([
+      this.api.invoke('service-call', serviceName, methodName, ...args),
+      this.api.invoke('service-call', 'MarcaService', 'listar'),
+      this.api.invoke('service-call', 'ProveedorService', 'listar')
+    ]);
+
+    if (marcasRes.success) marcasRes.data.forEach(m => this.marcasMap.set(m.id, m.nombre));
+    if (provRes.success) provRes.data.forEach(p => this.proveedoresMap.set(p.id, p.nombre));
 
     if (movRes.success) {
-      if (this.codigo) {
-        const artRes = await this.api.invoke('service-call', 'ArticuloService', 'obtener', this.codigo);
-        if (artRes.success && artRes.data) {
-          document.getElementById('historialTitle').textContent = 
-            `Historial de ${artRes.data.codigo} - ${artRes.data.descripcion}`;
-        }
+      // Obtener artículos relacionados para tener descripciones, marcas y proveedores
+      const codigos = [...new Set(movRes.data.map(m => m.codigo))];
+      const articulosRes = await this.api.invoke('service-call', 'ArticuloService', 'obtenerMultiples', codigos);
+      const articulosMap = new Map();
+      
+      if (articulosRes.success) {
+        articulosRes.data.forEach(a => articulosMap.set(a.codigo, a));
       }
-      this.movimientos = movRes.data;
-      this.renderizarTabla(movRes.data);
+
+      // Si estamos filtrando por un código específico, actualizar título
+      if (this.codigo && articulosMap.has(this.codigo)) {
+        const art = articulosMap.get(this.codigo);
+        document.getElementById('historialTitle').textContent = 
+          `Historial de ${art.codigo} - ${art.descripcion}`;
+      }
+
+      // Procesar movimientos para búsqueda
+      this.movimientos = movRes.data.map(mov => {
+        const articulo = articulosMap.get(mov.codigo);
+        const descripcion = articulo ? articulo.descripcion : '';
+        const marca = articulo ? (this.marcasMap.get(articulo.marcaId) || '') : '';
+        const proveedor = articulo ? (this.proveedoresMap.get(articulo.proveedorId) || '') : '';
+        
+        // String de búsqueda
+        const searchString = `${mov.codigo} ${descripcion} ${marca} ${proveedor} ${mov.tipo} ${mov.fecha}`.toLowerCase();
+
+        return {
+          ...mov,
+          descripcionFull: descripcion,
+          marcaNombre: marca,
+          proveedorNombre: proveedor,
+          searchString
+        };
+      });
+
+      // Aplicar filtros actuales (texto y fechas)
+      this.aplicarFiltros();
     } else {
       document.getElementById('historialTableBody').innerHTML = `<tr><td colspan="6" class="text-center">Error: ${movRes.error}</td></tr>`;
     }
   }
 
-  async renderizarTabla(movimientos) {
+  aplicarFiltros() {
+    const searchInput = document.getElementById('searchInput');
+    const fechaDesdeInput = document.getElementById('fechaDesde');
+    const fechaHastaInput = document.getElementById('fechaHasta');
+
+    const termino = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    const fechaDesde = fechaDesdeInput ? fechaDesdeInput.value : '';
+    const fechaHasta = fechaHastaInput ? fechaHastaInput.value : '';
+
+    this.movimientosFiltrados = this.movimientos.filter(mov => {
+      // 1. Filtro de texto
+      const coincideTexto = !termino || mov.searchString.includes(termino);
+      
+      // 2. Filtro de fecha
+      let coincideFecha = true;
+      if (fechaDesde || fechaHasta) {
+        // Convertir fecha del movimiento a formato YYYY-MM-DD local para comparar
+        const d = new Date(mov.fecha);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const movFechaStr = `${year}-${month}-${day}`;
+
+        if (fechaDesde && movFechaStr < fechaDesde) coincideFecha = false;
+        if (fechaHasta && movFechaStr > fechaHasta) coincideFecha = false;
+      }
+
+      return coincideTexto && coincideFecha;
+    });
+
+    this.renderizarTabla();
+  }
+
+  renderizarTabla() {
     const tbody = document.getElementById('historialTableBody');
     tbody.innerHTML = '';
     this.seleccionadoIndex = -1;
 
-    if (movimientos.length === 0) {
+    // Asegurar orden descendente por fecha (lo más nuevo arriba)
+    this.movimientosFiltrados.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+    if (this.movimientosFiltrados.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" class="text-center">No hay movimientos registrados</td></tr>';
       return;
     }
 
-    // Para evitar N+1 llamadas, cargamos todos los artículos necesarios de una vez
-    const codigos = [...new Set(movimientos.map(m => m.codigo))];
-    const articulosRes = await this.api.invoke('service-call', 'ArticuloService', 'obtenerMultiples', codigos);
-    const articulosMap = new Map();
-    if(articulosRes.success) {
-      articulosRes.data.forEach(a => articulosMap.set(a.codigo, a));
-    }
-
-    movimientos.forEach((mov, index) => {
+    this.movimientosFiltrados.forEach((mov, index) => {
       const row = document.createElement('tr');
-      const articulo = articulosMap.get(mov.codigo);
-      const descripcion = articulo ? articulo.descripcion : '-';
       const tipoClass = mov.tipo === 'ENTRADA' ? 'badge success' : 'badge danger';
+      
+      // Construir info extra (Marca/Proveedor)
+      let metaInfo = [];
+      if (mov.marcaNombre) metaInfo.push(mov.marcaNombre);
+      if (mov.proveedorNombre) metaInfo.push(mov.proveedorNombre);
+      const metaHtml = metaInfo.length > 0 
+        ? `<div style="font-size: 0.85em; color: #888; margin-top: 2px;">${metaInfo.join(' • ')}</div>` 
+        : '';
       
       row.dataset.index = index;
       
       row.innerHTML = `
         <td>${mov.id}</td>
         <td>${mov.codigo}</td>
-        <td>${descripcion}</td>
+        <td>
+          ${mov.descripcionFull || '-'}
+          ${metaHtml}
+        </td>
         <td class="text-center">${mov.cantidad}</td>
         <td><span class="${tipoClass}">${mov.tipo}</span></td>
         <td>${new Date(mov.fecha).toLocaleString()}</td>
@@ -143,10 +236,10 @@ class HistorialController {
   }
 
   navegarTabla(direccion) {
-    if (this.movimientos.length === 0) return;
+    if (this.movimientosFiltrados.length === 0) return;
     let nuevoIndex = this.seleccionadoIndex + direccion;
     if (nuevoIndex < 0) nuevoIndex = 0;
-    if (nuevoIndex >= this.movimientos.length) nuevoIndex = this.movimientos.length - 1;
+    if (nuevoIndex >= this.movimientosFiltrados.length) nuevoIndex = this.movimientosFiltrados.length - 1;
     this.seleccionarFila(nuevoIndex);
   }
 }

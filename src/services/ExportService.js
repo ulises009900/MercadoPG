@@ -1,4 +1,5 @@
 const ArticuloService = require('./ArticuloService');
+const { app } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -46,7 +47,8 @@ class ExportService {
     });
 
     // Guardar archivo
-    const filePath = path.join(process.cwd(), nombreArchivo);
+    const basePath = app ? app.getPath('downloads') : process.cwd();
+    const filePath = path.join(basePath, nombreArchivo);
     fs.writeFileSync(filePath, csv, 'utf8');
     
     return filePath;
@@ -79,7 +81,8 @@ class ExportService {
     });
 
     // Guardar archivo
-    const filePath = path.join(process.cwd(), nombreArchivo);
+    const basePath = app ? app.getPath('downloads') : process.cwd();
+    const filePath = path.join(basePath, nombreArchivo);
     fs.writeFileSync(filePath, csv, 'utf8');
     
     return filePath;

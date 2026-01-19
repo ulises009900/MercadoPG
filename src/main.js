@@ -96,6 +96,7 @@ function createArticuloFormWindow(codigo = null) {
 function createHistorialWindow(codigo = null) {
   if (historialWindow) {
     historialWindow.focus();
+    historialWindow.webContents.send('load-historial', codigo);
     return;
   }
 
@@ -424,7 +425,8 @@ ipcMain.handle('save-image', (event, tempPath, codigo) => {
     return null;
   }
 
-  const appDataPath = path.join(app.getAppPath(), 'Data', 'Images');
+  const basePath = app.isPackaged ? app.getPath('userData') : process.cwd();
+  const appDataPath = path.join(basePath, 'Data', 'Images');
 
   if (!fs.existsSync(appDataPath)) {
     fs.mkdirSync(appDataPath, { recursive: true });

@@ -10,6 +10,7 @@ class MainController {
     this.proveedores = [];
     this.config = {};
     this.searchTimeout = null;
+    this.sortState = { key: null, direction: 'asc' }; // Estado del ordenamiento
     
     // La API expuesta desde preload.js
     this.api = window.api;
@@ -191,6 +192,14 @@ class MainController {
       document.documentElement.style.setProperty('--primary-color', theme.colorPrimario);
       document.documentElement.style.setProperty('--foreground-color', theme.colorTexto);
     });
+
+    // Eventos de ordenamiento en columnas
+    document.querySelectorAll('th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.key;
+        if (key) this.handleSort(key);
+      });
+    });
   }
 
   /**
@@ -226,6 +235,7 @@ class MainController {
       this.proveedores = proveedoresRes.data;
       
       this.articulosFiltrados = [...this.articulos];
+      this.aplicarOrdenamiento(); // Aplicar orden si ya existía
       this.renderizarTabla();
       this.verificarStockCritico();
     } catch (error) {
@@ -278,6 +288,7 @@ class MainController {
     });
 
     tbody.appendChild(fragment);
+    this.actualizarIndicadoresOrden();
   }
 
   /**
@@ -367,6 +378,78 @@ class MainController {
   }
 
   /**
+   * Maneja el clic en un encabezado para ordenar
+   */
+  handleSort(key) {
+    // Alternar dirección si es la misma columna, sino resetear a asc
+    if (this.sortState.key === key) {
+      this.sortState.direction = this.sortState.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+      this.sortState.key = key;
+      this.sortState.direction = 'asc';
+    }
+    
+    this.aplicarOrdenamiento();
+    this.renderizarTabla();
+  }
+
+  /**
+   * Aplica el ordenamiento actual a articulosFiltrados
+   */
+  aplicarOrdenamiento() {
+    if (!this.sortState.key) return;
+
+    const key = this.sortState.key;
+    const dir = this.sortState.direction === 'asc' ? 1 : -1;
+
+    this.articulosFiltrados.sort((a, b) => {
+      let valA, valB;
+
+      switch(key) {
+        case 'marca':
+          valA = (this.marcas.find(m => m.id === a.marcaId)?.nombre || '').toLowerCase();
+          valB = (this.marcas.find(m => m.id === b.marcaId)?.nombre || '').toLowerCase();
+          break;
+        case 'proveedor':
+          valA = (this.proveedores.find(p => p.id === a.proveedorId)?.nombre || '').toLowerCase();
+          valB = (this.proveedores.find(p => p.id === b.proveedorId)?.nombre || '').toLowerCase();
+          break;
+        case 'precioFinal':
+          valA = this.calcularPrecios(a).precioFinal;
+          valB = this.calcularPrecios(b).precioFinal;
+          break;
+        case 'costo':
+        case 'ganancia':
+        case 'stock':
+        case 'stockMinimo':
+        case 'iva':
+          valA = parseFloat(a[key]) || 0;
+          valB = parseFloat(b[key]) || 0;
+          break;
+        default: // codigo, descripcion
+          valA = (a[key] || '').toString().toLowerCase();
+          valB = (b[key] || '').toString().toLowerCase();
+      }
+
+      if (valA < valB) return -1 * dir;
+      if (valA > valB) return 1 * dir;
+      return 0;
+    });
+  }
+
+  /**
+   * Actualiza las flechas visuales en los headers
+   */
+  actualizarIndicadoresOrden() {
+    document.querySelectorAll('th.sortable').forEach(th => {
+      th.classList.remove('sorted-asc', 'sorted-desc');
+      if (th.dataset.key === this.sortState.key) {
+        th.classList.add(`sorted-${this.sortState.direction}`);
+      }
+    });
+  }
+
+  /**
    * Busca artículos
    */
   buscar(termino) {
@@ -379,6 +462,7 @@ class MainController {
         art.descripcion.toLowerCase().includes(busqueda)
       );
     }
+    this.aplicarOrdenamiento(); // Re-aplicar orden tras filtrar
     this.renderizarTabla();
   }
 
@@ -572,14 +656,23 @@ class MainController {
    * Muestra una notificación
    */
   mostrarNotificacion(mensaje, tipo = 'success') {
-    const notification = document.createElement('div');
-    notification.className = `notification ${tipo}`;
-    notification.textContent = mensaje;
-    document.body.appendChild(notification);
+    const toast = document.getElementById('update-toast');
+    if (toast) {
+      toast.textContent = mensaje;
+      
+      // Cambiar color según el tipo de mensaje
+      if (tipo === 'error') toast.style.backgroundColor = '#c0392b'; // Rojo
+      else if (tipo === 'warning') toast.style.backgroundColor = '#f39c12'; // Naranja
+      else toast.style.backgroundColor = '#28a745'; // Verde (default)
 
-    setTimeout(() => {
-      notification.remove();
-    }, 3000);
+      toast.classList.add('show');
+
+      // Reiniciar el temporizador si ya estaba visible para que no se corte antes
+      if (this.toastTimeout) clearTimeout(this.toastTimeout);
+      this.toastTimeout = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
   }
 }
 

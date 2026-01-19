@@ -68,10 +68,20 @@ class ArticuloService {
     if (!codigos || codigos.length === 0) {
       return [];
     }
-    const placeholders = codigos.map(() => '?').join(',');
-    const sql = `${this.baseSelect} WHERE codigo IN (${placeholders})`;
-    const rows = db.query(sql, codigos);
-    return rows.map(row => Articulo.fromDatabase(row));
+    
+    // SQLite tiene un límite de variables. Procesamos por lotes de 900 para evitar errores.
+    const chunkSize = 900;
+    let resultados = [];
+
+    for (let i = 0; i < codigos.length; i += chunkSize) {
+      const chunk = codigos.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '?').join(',');
+      const sql = `${this.baseSelect} WHERE codigo IN (${placeholders})`;
+      const rows = db.query(sql, chunk);
+      resultados = resultados.concat(rows);
+    }
+
+    return resultados.map(row => Articulo.fromDatabase(row));
   }
 
   /**
@@ -124,19 +134,51 @@ class ArticuloService {
   /**
    * Actualiza el IVA de todos los artículos
    * @param {number} nuevoIva
+   * @param {Object} filtros - { marcaId, proveedorId, categoriaId }
    */
-  actualizarIvaMasivo(nuevoIva) {
-    const sql = 'UPDATE articulos SET iva = ? WHERE protegido = 0';
-    db.execute(sql, [nuevoIva]);
+  actualizarIvaMasivo(nuevoIva, filtros = {}) {
+    let sql = 'UPDATE articulos SET iva = ? WHERE protegido = 0';
+    const params = [nuevoIva];
+
+    if (filtros.marcaId) {
+      sql += ' AND marcaId = ?';
+      params.push(filtros.marcaId);
+    }
+    if (filtros.proveedorId) {
+      sql += ' AND proveedorId = ?';
+      params.push(filtros.proveedorId);
+    }
+    if (filtros.categoriaId) {
+      sql += ' AND categoriaId = ?';
+      params.push(filtros.categoriaId);
+    }
+
+    db.execute(sql, params);
   }
 
   /**
    * Actualiza la ganancia de todos los artículos
    * @param {number} nuevaGanancia
+   * @param {Object} filtros - { marcaId, proveedorId, categoriaId }
    */
-  actualizarGananciaMasivo(nuevaGanancia) {
-    const sql = 'UPDATE articulos SET ganancia = ? WHERE protegido = 0';
-    db.execute(sql, [nuevaGanancia]);
+  actualizarGananciaMasivo(nuevaGanancia, filtros = {}) {
+    let sql = 'UPDATE articulos SET ganancia = ? WHERE protegido = 0';
+    const params = [nuevaGanancia];
+
+    if (filtros.marcaId) {
+      sql += ' AND marcaId = ?';
+      params.push(filtros.marcaId);
+    }
+    if (filtros.proveedorId) {
+      sql += ' AND proveedorId = ?';
+      params.push(filtros.proveedorId);
+    }
+    if (filtros.categoriaId) {
+      sql += ' AND categoriaId = ?';
+      params.push(filtros.categoriaId);
+    }
+
+    db.execute(sql, params);
   }
 
   /**

@@ -1,4 +1,5 @@
 const Database = require('better-sqlite3');
+const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -13,7 +14,9 @@ class BetterDatabaseRepository {
   }
 
   getDatabasePath() {
-    const appDataPath = path.join(process.cwd(), 'Data');
+    // Usar userData si está empaquetado, o cwd si es desarrollo
+    const basePath = (app && app.isPackaged) ? app.getPath('userData') : process.cwd();
+    const appDataPath = path.join(basePath, 'Data');
     if (!fs.existsSync(appDataPath)) {
       fs.mkdirSync(appDataPath, { recursive: true });
     }

@@ -5,6 +5,9 @@ class ConfigController {
   constructor() {
     this.api = window.api;
     this.init();
+    this.marcas = [];
+    this.proveedores = [];
+    this.categorias = [];
   }
 
   async init() {
@@ -15,6 +18,8 @@ class ConfigController {
       document.body.style.overflowY = 'auto';
 
       await this.cargarConfiguracion();
+      await this.cargarDatosAuxiliares();
+      this.renderMassiveUpdateControls();
       this.renderBackupControls(); // Agregar controles de backup
       
       // Ajustar tamaño de ventana para asegurar que se vea todo el contenido
@@ -35,16 +40,6 @@ class ConfigController {
     
     const btnRestaurar = document.getElementById('btnRestaurar');
     if (btnRestaurar) btnRestaurar.addEventListener('click', () => this.restaurarDefaults());
-
-    // Botones para aplicar cambios masivos (asegúrate de crear estos botones en tu HTML)
-    const btnAplicarIva = document.getElementById('btnAplicarIva');
-    if (btnAplicarIva) {
-      btnAplicarIva.addEventListener('click', () => this.aplicarIvaMasivo());
-    }
-    const btnAplicarGanancia = document.getElementById('btnAplicarGanancia');
-    if (btnAplicarGanancia) {
-      btnAplicarGanancia.addEventListener('click', () => this.aplicarGananciaMasivo());
-    }
 
     // Vista previa en tiempo real de los colores
     const colorInputs = [
@@ -161,38 +156,136 @@ class ConfigController {
     this.api.send('preview-theme', theme);
   }
 
-  async aplicarIvaMasivo() {
-    const input = document.getElementById('ivaGlobal');
-    if (!input) return;
-    const iva = parseFloat(input.value);
-    if (isNaN(iva)) return alert('Ingrese un valor de IVA válido');
-
-    if (confirm(`¿Está seguro de asignar ${iva}% de IVA a todos los artículos NO protegidos?`)) {
-      try {
-        await this.api.invoke('service-call', 'ArticuloService', 'actualizarIvaMasivo', iva);
-        alert('✓ IVA actualizado en todos los artículos');
-        this.api.send('reload-data'); // Recargar tablas abiertas
-      } catch (error) {
-        alert('Error al actualizar: ' + error.message);
-      }
+  /**
+   * Carga datos auxiliares para los filtros
+   */
+  async cargarDatosAuxiliares() {
+    try {
+      const [marcasRes, provRes, catRes] = await Promise.all([
+        this.api.invoke('service-call', 'MarcaService', 'listar'),
+        this.api.invoke('service-call', 'ProveedorService', 'listar'),
+        this.api.invoke('service-call', 'CategoriaService', 'listar')
+      ]);
+      
+      this.marcas = marcasRes.success ? marcasRes.data : [];
+      this.proveedores = provRes.success ? provRes.data : [];
+      this.categorias = catRes.success ? catRes.data : [];
+    } catch (error) {
+      console.error('Error cargando datos auxiliares:', error);
     }
   }
 
-  async aplicarGananciaMasivo() {
-    const input = document.getElementById('gananciaGlobal');
-    if (!input) return;
-    const ganancia = parseFloat(input.value);
-    if (isNaN(ganancia)) return alert('Ingrese un valor de ganancia válido');
+  /**
+   * Renderiza controles de actualización masiva con filtros
+   */
+  renderMassiveUpdateControls() {
+    const form = document.getElementById('configForm');
+    if (!form || document.getElementById('massUpdateSection')) return;
 
-    if (confirm(`¿Está seguro de asignar ${ganancia}% de Ganancia a todos los artículos NO protegidos?`)) {
-      try {
-        await this.api.invoke('service-call', 'ArticuloService', 'actualizarGananciaMasivo', ganancia);
-        alert('✓ Ganancia actualizada en todos los artículos');
-        this.api.send('reload-data'); // Recargar tablas abiertas
-      } catch (error) {
-        alert('Error al actualizar: ' + error.message);
-      }
+    const fieldset = document.createElement('fieldset');
+    fieldset.id = 'massUpdateSection';
+    fieldset.style.marginTop = '20px';
+    fieldset.style.border = '1px solid #ddd';
+    fieldset.style.padding = '10px';
+    
+    const createRow = (label, idPrefix, defaultVal) => `
+      <div style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #eee;">
+        <label style="display:block; font-weight:bold; margin-bottom:5px;">${label}</label>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <input type="number" id="${idPrefix}Value" placeholder="%" style="width: 70px; padding: 5px;" value="${defaultVal}">
+          <select id="${idPrefix}FilterType" style="padding: 5px;">
+            <option value="all">Todos los artículos</option>
+            <option value="marca">Por Marca</option>
+            <option value="proveedor">Por Proveedor</option>
+            <option value="categoria">Por Categoría</option>
+          </select>
+          <select id="${idPrefix}FilterValue" style="padding: 5px; display: none; min-width: 150px;">
+            <!-- Options populated dynamically -->
+          </select>
+          <button type="button" id="${idPrefix}BtnApply" style="padding: 5px 15px; background-color: var(--primary-color, #0078D4); color: white; border: none; cursor: pointer;">Aplicar</button>
+        </div>
+      </div>
+    `;
+
+    fieldset.innerHTML = `
+      <legend style="font-weight:bold; padding: 0 5px;">Actualización Masiva de Precios</legend>
+      <p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
+        Aplica cambios a artículos NO protegidos.
+      </p>
+      ${createRow('Actualizar IVA', 'massIva', 21)}
+      ${createRow('Actualizar Ganancia', 'massGanancia', 0)}
+    `;
+
+    // Insertar antes de los botones de acción (o antes de backup si existe)
+    const backupSection = document.getElementById('backupControlsSection');
+    if (backupSection) {
+      form.insertBefore(fieldset, backupSection);
+    } else {
+      const buttonsContainer = form.querySelector('.buttons') || form.lastElementChild;
+      form.insertBefore(fieldset, buttonsContainer);
     }
+
+    // Event Listeners
+    this.setupMassUpdateListeners('massIva', 'actualizarIvaMasivo');
+    this.setupMassUpdateListeners('massGanancia', 'actualizarGananciaMasivo');
+  }
+
+  setupMassUpdateListeners(prefix, serviceMethod) {
+    const typeSelect = document.getElementById(`${prefix}FilterType`);
+    const valueSelect = document.getElementById(`${prefix}FilterValue`);
+    const btnApply = document.getElementById(`${prefix}BtnApply`);
+
+    typeSelect.addEventListener('change', () => {
+      const type = typeSelect.value;
+      valueSelect.innerHTML = '';
+      valueSelect.style.display = type === 'all' ? 'none' : 'block';
+
+      let data = [];
+      if (type === 'marca') data = this.marcas;
+      else if (type === 'proveedor') data = this.proveedores;
+      else if (type === 'categoria') data = this.categorias;
+
+      data.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.id;
+        option.textContent = item.nombre;
+        valueSelect.appendChild(option);
+      });
+    });
+
+    btnApply.addEventListener('click', async () => {
+      const valor = parseFloat(document.getElementById(`${prefix}Value`).value);
+      if (isNaN(valor)) return alert('Ingrese un valor numérico válido');
+
+      const type = typeSelect.value;
+      const filtros = {};
+      let mensajeFiltro = 'TODOS los artículos';
+
+      if (type !== 'all') {
+        const selectedId = parseInt(valueSelect.value);
+        const selectedText = valueSelect.options[valueSelect.selectedIndex]?.text;
+        
+        if (!selectedId) return alert('Seleccione un elemento de la lista');
+
+        if (type === 'marca') filtros.marcaId = selectedId;
+        else if (type === 'proveedor') filtros.proveedorId = selectedId;
+        else if (type === 'categoria') filtros.categoriaId = selectedId;
+
+        mensajeFiltro = `artículos de ${type.toUpperCase()}: ${selectedText}`;
+      }
+
+      const label = prefix === 'massIva' ? 'IVA' : 'Ganancia';
+      
+      if (confirm(`¿Aplicar ${label} de ${valor}% a ${mensajeFiltro}?`)) {
+        try {
+          await this.api.invoke('service-call', 'ArticuloService', serviceMethod, valor, filtros);
+          alert(`✓ ${label} actualizado correctamente`);
+          this.api.send('reload-data');
+        } catch (error) {
+          alert('Error al actualizar: ' + error.message);
+        }
+      }
+    });
   }
 
   /**

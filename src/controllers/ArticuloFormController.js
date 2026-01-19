@@ -10,11 +10,15 @@ class ArticuloFormController {
 
   async init() {
     this.setupEventListeners();
-    await this.cargarConfiguracion();
-    await this.cargarCombos();
+    
+    // Iniciamos la carga de datos en segundo plano para no bloquear el registro de eventos
+    const cargaInicial = Promise.all([this.cargarConfiguracion(), this.cargarCombos()]);
     
     // Escuchar si es edición o nuevo artículo
-    this.api.on('load-articulo', (data) => {
+    // IMPORTANTE: Registramos el listener ANTES de cualquier await para capturar el evento a tiempo
+    this.api.on('load-articulo', async (data) => {
+      await cargaInicial; // Esperamos a que los datos estén listos antes de rellenar el formulario
+
       // Caso 1: Edición (recibe string con el código)
       if (typeof data === 'string' && data) {
         this.codigoEdicion = data;
@@ -24,17 +28,27 @@ class ArticuloFormController {
       } 
       // Caso 2: Nuevo con código escaneado (recibe objeto)
       else if (data && typeof data === 'object' && data.nuevo) {
+        this.limpiarFormulario(); // Aplicar defaults (IVA, etc.)
         document.getElementById('codigo').value = data.codigo || '';
         if (data.codigo) this.renderizarBarcode(data.codigo);
         // Mantenemos codigoEdicion en null para que al guardar sea un INSERT
         // Poner foco en descripción para agilizar la carga
         setTimeout(() => document.getElementById('descripcion').focus(), 100);
       }
+      // Caso 3: Nuevo artículo vacío (carga estándar)
+      else {
+        this.limpiarFormulario();
+        setTimeout(() => document.getElementById('codigo').focus(), 100);
+      }
     });
+
+    // Esperamos a que termine la carga inicial para continuar con el resto del flujo
+    await cargaInicial;
 
     // Escuchar cambios globales (configuración, tema, etc.)
     this.api.on('reload-data', async () => {
       await this.cargarConfiguracion();
+      if (document.getElementById('costo').value) this.sincronizarCosto('ARS');
       this.calcularPrecios();
     });
 
@@ -72,7 +86,7 @@ class ArticuloFormController {
     });
     
     // Eventos para cálculo de precios en tiempo real
-    ['costo', 'ganancia', 'iva'].forEach(id => {
+    ['ganancia', 'iva'].forEach(id => {
       const element = document.getElementById(id);
       if (element) {
         element.addEventListener('input', () => this.calcularPrecios());
@@ -80,6 +94,24 @@ class ArticuloFormController {
         element.addEventListener('change', () => this.calcularPrecios());
       }
     });
+
+    // Eventos para Costo (ARS y USD) con sincronización
+    const costoInput = document.getElementById('costo');
+    const costoUsdInput = document.getElementById('costoUsd');
+    
+    if (costoInput) {
+      costoInput.addEventListener('input', () => {
+        this.sincronizarCosto('ARS');
+        this.calcularPrecios();
+      });
+    }
+
+    if (costoUsdInput) {
+      costoUsdInput.addEventListener('input', () => {
+        this.sincronizarCosto('USD');
+        this.calcularPrecios();
+      });
+    }
 
     // Evento especial para IVA: Si el usuario escribe, se protege automáticamente
     const ivaInput = document.getElementById('iva');
@@ -191,6 +223,7 @@ class ArticuloFormController {
     document.getElementById('costo').value = articulo.costo;
     document.getElementById('ganancia').value = articulo.ganancia;
     document.getElementById('iva').value = articulo.iva;
+    this.sincronizarCosto('ARS'); // Calcular USD basado en el costo cargado
     document.getElementById('stock').value = articulo.stock;
     document.getElementById('stockMinimo').value = articulo.stockMinimo;
     document.getElementById('marcaId').value = articulo.marcaId || 0;
@@ -229,6 +262,25 @@ class ArticuloFormController {
     preview.src = pathImg;
     preview.style.display = 'block';
     document.getElementById('noImageText').style.display = 'none';
+  }
+
+  sincronizarCosto(origen) {
+    const cotizacion = this.config.cotizacionUsd || 1;
+    if (origen === 'ARS') {
+      const ars = parseFloat(document.getElementById('costo').value);
+      if (!isNaN(ars)) {
+        document.getElementById('costoUsd').value = (ars / cotizacion).toFixed(2);
+      } else {
+        document.getElementById('costoUsd').value = '';
+      }
+    } else {
+      const usd = parseFloat(document.getElementById('costoUsd').value);
+      if (!isNaN(usd)) {
+        document.getElementById('costo').value = (usd * cotizacion).toFixed(2);
+      } else {
+        document.getElementById('costo').value = '';
+      }
+    }
   }
 
   calcularPrecios() {
@@ -406,11 +458,12 @@ class ArticuloFormController {
     document.getElementById('codigo').readOnly = false;
     
     // Valores por defecto
+    document.getElementById('costoUsd').value = '';
     document.getElementById('protegido').checked = false;
     // Al limpiar, mostrar IVA Global por defecto
     document.getElementById('iva').value = this.config.ivaGlobal;
     
-    document.getElementById('ganancia').value = 0;
+    document.getElementById('ganancia').value = this.config.gananciaGlobal || 0;
     this.calcularPrecios();
     document.getElementById('descripcion').focus();
   }
