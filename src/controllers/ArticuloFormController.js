@@ -154,6 +154,9 @@ class ArticuloFormController {
     document.getElementById('btnNuevoProveedor').addEventListener('click', () => this.abrirModal('proveedor'));
     document.getElementById('btnNuevaCategoria').addEventListener('click', () => this.abrirModal('categoria'));
 
+    // Configurar botones de eliminación dinámicos
+    this.setupDeleteControls();
+
     // Eventos del Modal
     document.getElementById('btnModalCancel').addEventListener('click', () => this.cerrarModal());
     document.getElementById('btnModalSave').addEventListener('click', () => this.guardarModal());
@@ -466,6 +469,51 @@ class ArticuloFormController {
     document.getElementById('ganancia').value = this.config.gananciaGlobal || 0;
     this.calcularPrecios();
     document.getElementById('descripcion').focus();
+  }
+
+  /**
+   * Crea e inyecta botones de eliminación al lado de los botones de agregar
+   */
+  setupDeleteControls() {
+    const controls = [
+      { btnId: 'btnNuevaMarca', selectId: 'marcaId', service: 'MarcaService', label: 'marca' },
+      { btnId: 'btnNuevoProveedor', selectId: 'proveedorId', service: 'ProveedorService', label: 'proveedor' },
+      { btnId: 'btnNuevaCategoria', selectId: 'categoriaId', service: 'CategoriaService', label: 'categoría' }
+    ];
+
+    controls.forEach(ctrl => {
+      const addBtn = document.getElementById(ctrl.btnId);
+      // Solo agregar si existe el botón de "Nuevo" y su padre
+      if (addBtn && addBtn.parentNode) {
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.textContent = '🗑️';
+        delBtn.title = `Eliminar ${ctrl.label} seleccionada`;
+        // Estilos para que se vea integrado pero distintivo (Rojo)
+        delBtn.style.marginLeft = '5px';
+        delBtn.style.padding = '2px 8px';
+        delBtn.style.cursor = 'pointer';
+        delBtn.style.backgroundColor = '#e74c3c';
+        delBtn.style.color = 'white';
+        delBtn.style.border = 'none';
+        delBtn.style.borderRadius = '4px';
+
+        delBtn.addEventListener('click', async () => {
+          const select = document.getElementById(ctrl.selectId);
+          const id = parseInt(select.value);
+          if (!id || id === 0) return alert(`Seleccione una ${ctrl.label} para eliminar.`);
+          
+          const nombre = select.options[select.selectedIndex].text;
+          if (confirm(`¿Está seguro de eliminar "${nombre}"?\nEsta acción no se puede deshacer.`)) {
+            const result = await this.api.invoke('service-call', ctrl.service, 'eliminar', id);
+            if (result && result.success === false) alert('Error: ' + result.error);
+            else { alert('Eliminado correctamente'); await this.cargarCombos(); }
+          }
+        });
+        // Insertar el botón de eliminar justo después del botón de agregar
+        addBtn.parentNode.insertBefore(delBtn, addBtn.nextSibling);
+      }
+    });
   }
 
   // --- Gestión del Modal ---

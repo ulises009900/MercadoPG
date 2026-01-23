@@ -8,6 +8,7 @@ class MainController {
     this.seleccionados = [];
     this.marcas = [];
     this.proveedores = [];
+    this.categorias = [];
     this.config = {};
     this.searchTimeout = null;
     this.sortState = { key: null, direction: 'asc' }; // Estado del ordenamiento
@@ -220,19 +221,21 @@ class MainController {
    */
   async cargarDatos() {
     try {
-      const [articulosRes, marcasRes, proveedoresRes] = await Promise.all([
+      const [articulosRes, marcasRes, proveedoresRes, categoriasRes] = await Promise.all([
         this.api.invoke('service-call', 'ArticuloService', 'listar'),
         this.api.invoke('service-call', 'MarcaService', 'listar'),
-        this.api.invoke('service-call', 'ProveedorService', 'listar')
+        this.api.invoke('service-call', 'ProveedorService', 'listar'),
+        this.api.invoke('service-call', 'CategoriaService', 'listar')
       ]);
 
-      if (!articulosRes.success || !marcasRes.success || !proveedoresRes.success) {
+      if (!articulosRes.success || !marcasRes.success || !proveedoresRes.success || !categoriasRes.success) {
         throw new Error('No se pudieron cargar los datos maestros.');
       }
 
       this.articulos = articulosRes.data;
       this.marcas = marcasRes.data;
       this.proveedores = proveedoresRes.data;
+      this.categorias = categoriasRes.data;
       
       this.articulosFiltrados = [...this.articulos];
       this.aplicarOrdenamiento(); // Aplicar orden si ya existía
@@ -618,9 +621,14 @@ class MainController {
    * Genera un documento de Word con opciones de columnas
    */
   async generarDocumentoAvanzado() {
-    // Enviamos los datos actuales (filtrados) a la nueva ventana de opciones
-    // Esto permite que si filtraste por "Samsung", solo exportes "Samsung"
-    this.api.send('open-export-window', this.articulosFiltrados);
+    // Enviamos todos los datos necesarios para que el usuario decida qué y cómo exportar
+    this.api.send('open-export-window', {
+      articulos: this.articulos,
+      marcas: this.marcas,
+      proveedores: this.proveedores,
+      categorias: this.categorias,
+      config: this.config
+    });
   }
 
   /**
