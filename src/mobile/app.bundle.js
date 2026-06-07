@@ -53533,7 +53533,7 @@
   var IMAGE_MAP_KEY = "mercadopg.mobile.image-map.v1";
   var LAST_SELECTED_CODE_KEY = "mercadopg.mobile.last-selected-code.v1";
   var LAST_SEARCH_KEY = "mercadopg.mobile.last-search.v1";
-  var IMAGE_CACHE_NAME = "mercadopg-mobile-images-v1";
+  var NOTES_KEY = "mercadopg.mobile.notes.v1";
   function formatCurrency(value) {
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
@@ -53551,33 +53551,6 @@
   }
   function writeJson(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
-  }
-  function readQueue() {
-    const localValue = readJson(QUEUE_KEY, null);
-    if (Array.isArray(localValue)) {
-      return localValue;
-    }
-    try {
-      const raw = sessionStorage.getItem(QUEUE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  }
-  function writeQueue(queue) {
-    const serialized = JSON.stringify(queue);
-    let persisted = false;
-    try {
-      localStorage.setItem(QUEUE_KEY, serialized);
-      persisted = true;
-    } catch {
-    }
-    try {
-      sessionStorage.setItem(QUEUE_KEY, serialized);
-      persisted = true;
-    } catch {
-    }
-    return persisted;
   }
   function nextId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -53601,6 +53574,7 @@
     }
   }
   function formatOpLabel(op) {
+    var _a2, _b;
     const base = op.codigo ? `${op.codigo}` : "Sin codigo";
     switch (op.type) {
       case "stock-entry":
@@ -53613,6 +53587,12 @@
         return `Alta de articulo \xB7 ${base}`;
       case "article-delete":
         return `Baja de articulo \xB7 ${base}`;
+      case "nota-create":
+        return `Nueva nota \xB7 ${((_a2 = op.payload) == null ? void 0 : _a2.titulo) || "Sin titulo"}`;
+      case "nota-update":
+        return `Edicion de nota \xB7 ${((_b = op.payload) == null ? void 0 : _b.titulo) || "Sin titulo"}`;
+      case "nota-delete":
+        return `Baja de nota`;
       default:
         return `Operacion \xB7 ${base}`;
     }
@@ -53655,9 +53635,6 @@
   }
   function isAbsoluteUrl(value) {
     return /^https?:\/\//i.test(String(value || ""));
-  }
-  function isApiImageUrl(value) {
-    return String(value || "").startsWith("/api/images/");
   }
   function isImageMimeType(value) {
     return /^image\//i.test(String(value || ""));
@@ -53707,6 +53684,62 @@
       dataUrl,
       fileName: (file.name || `imagen_${Date.now()}.${safeExt}`).replace(/\.[^.]+$/, `.${safeExt}`)
     };
+  }
+  function ChecklistEditor({ contenido, onSave }) {
+    const [items, setItems] = import_react.default.useState(() => {
+      try {
+        return JSON.parse(contenido || "[]");
+      } catch {
+        return [];
+      }
+    });
+    const updateItems = (newItems) => {
+      setItems(newItems);
+      onSave(JSON.stringify(newItems));
+    };
+    const addItem = () => {
+      updateItems([...items, { checked: false, text: "" }]);
+    };
+    const toggleItem = (index) => {
+      const next = [...items];
+      next[index].checked = !next[index].checked;
+      updateItems(next);
+    };
+    const editItem = (index, text) => {
+      const next = [...items];
+      next[index].text = text;
+      updateItems(next);
+    };
+    const removeItem = (index) => {
+      updateItems(items.filter((_, i) => i !== index));
+    };
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "checklist-editor-mobile" }, items.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "checklist-empty" }, "Todavia no hay tareas. Agrega el primer item.") : null, items.map((item, index) => /* @__PURE__ */ import_react.default.createElement("div", { key: index, className: `checklist-row ${item.checked ? "done" : ""}` }, /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: "checklist-toggle",
+        type: "checkbox",
+        checked: item.checked,
+        onChange: () => toggleItem(index)
+      }
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: "checklist-text",
+        type: "text",
+        value: item.text,
+        onChange: (e) => editItem(index, e.target.value),
+        placeholder: "Escribe una tarea..."
+      }
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: "secondary checklist-remove",
+        type: "button",
+        "aria-label": "Eliminar tarea",
+        onClick: () => removeItem(index)
+      },
+      "\xD7"
+    ))), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary checklist-add", type: "button", onClick: addItem }, "+ Agregar item"));
   }
   function isDriveExternalUrl(value) {
     try {
@@ -53771,22 +53804,20 @@
     const [search, setSearch] = (0, import_react.useState)(() => localStorage.getItem(LAST_SEARCH_KEY) || "");
     const deferredSearch = (0, import_react.useDeferredValue)(search);
     const [status, setStatus] = (0, import_react.useState)({ running: false, primaryUrl: window.location.origin, offline: false });
+    const [activeSection, setActiveSection] = (0, import_react.useState)("mercado");
     const [apiBase, setApiBase] = (0, import_react.useState)(initialApiBase);
     const [pcHost, setPcHost] = (0, import_react.useState)(() => storedPcHost);
     const [quantity, setQuantity] = (0, import_react.useState)("1");
     const [form, setForm] = (0, import_react.useState)({ descripcion: "", costo: "", ganancia: "", iva: "", stockMinimo: "" });
-    const [selectedImageDraft, setSelectedImageDraft] = (0, import_react.useState)({ dataUrl: "", fileName: "" });
     const [catalogs, setCatalogs] = (0, import_react.useState)(() => readJson(CATALOGS_KEY, { marcas: [], proveedores: [], categorias: [], config: {} }));
     const [createForm, setCreateForm] = (0, import_react.useState)(() => defaultCreateForm(readJson(CATALOGS_KEY, { config: {} }).config || {}));
-    const [createImageDraft, setCreateImageDraft] = (0, import_react.useState)({ dataUrl: "", fileName: "" });
-    const [offlineImageDownload, setOfflineImageDownload] = (0, import_react.useState)({ running: false, done: 0, total: 0 });
     const [message, setMessage] = (0, import_react.useState)(null);
     const [loading, setLoading] = (0, import_react.useState)(false);
-    const [pendingOps, setPendingOps] = (0, import_react.useState)(() => readQueue());
+    const [pendingOps, setPendingOps] = (0, import_react.useState)(() => readJson(QUEUE_KEY, []));
     const [pendingCount, setPendingCount] = (0, import_react.useState)(() => pendingOps.length);
+    const [notas, setNotas] = (0, import_react.useState)(() => readJson(NOTES_KEY, []));
     const [conflicts, setConflicts] = (0, import_react.useState)(() => readJson(CONFLICTS_KEY, []));
     const [history, setHistory] = (0, import_react.useState)(() => readJson(HISTORY_KEY, []));
-    const [activeSection, setActiveSection] = (0, import_react.useState)("mercado");
     const [createOpen, setCreateOpen] = (0, import_react.useState)(false);
     const [installPrompt, setInstallPrompt] = (0, import_react.useState)(null);
     const [isInstalled, setIsInstalled] = (0, import_react.useState)(() => window.matchMedia("(display-mode: standalone)").matches);
@@ -53803,13 +53834,13 @@
     const [autoBackupSync, setAutoBackupSync] = (0, import_react.useState)(() => autoBackupFromQr ? true : localStorage.getItem(DRIVE_AUTO_SYNC_KEY) !== "0");
     const [driveBackups, setDriveBackups] = (0, import_react.useState)([]);
     const [imageMap, setImageMap] = (0, import_react.useState)(() => readJson(IMAGE_MAP_KEY, {}));
-    const queueRef = (0, import_react.useRef)(readQueue());
+    const [createImageDraft, setCreateImageDraft] = (0, import_react.useState)({ dataUrl: "", fileName: "" });
+    const [selectedImageDraft, setSelectedImageDraft] = (0, import_react.useState)({ dataUrl: "", fileName: "" });
+    const queueRef = (0, import_react.useRef)(readJson(QUEUE_KEY, []));
     const conflictsRef = (0, import_react.useRef)(readJson(CONFLICTS_KEY, []));
     const historyRef = (0, import_react.useRef)(readJson(HISTORY_KEY, []));
     const imageMapRef = (0, import_react.useRef)(readJson(IMAGE_MAP_KEY, {}));
     const videoRef = (0, import_react.useRef)(null);
-    const createImageInputRef = (0, import_react.useRef)(null);
-    const selectedImageInputRef = (0, import_react.useRef)(null);
     const streamRef = (0, import_react.useRef)(null);
     const scanIntervalRef = (0, import_react.useRef)(null);
     const barcodeDetectorRef = (0, import_react.useRef)(null);
@@ -54316,12 +54347,22 @@
     }
     function persistQueue(nextQueue) {
       queueRef.current = nextQueue;
-      const stored = writeQueue(nextQueue);
-      if (!stored) {
-        setMessage({ type: "error", text: "No se pudo persistir la cola local. Liber\xE1 espacio del navegador." });
-      }
+      writeJson(QUEUE_KEY, nextQueue);
       setPendingOps(nextQueue);
       setPendingCount(nextQueue.length);
+    }
+    async function loadNotas() {
+      try {
+        const data = await fetchJson("/api/notas");
+        setNotas(data);
+        writeJson(NOTES_KEY, data);
+      } catch {
+        setNotas(readJson(NOTES_KEY, []));
+      }
+    }
+    function persistNotas(nextNotas) {
+      writeJson(NOTES_KEY, nextNotas);
+      setNotas(nextNotas);
     }
     function persistConflicts(next) {
       const clipped = next.slice(0, 80);
@@ -54390,30 +54431,21 @@
     }
     function applyThemeFromConfig(config = {}) {
       const root = document.documentElement;
-      const primary = config.colorPrimario || "#111111";
-      root.style.setProperty("--bg", "#ffffff");
+      const primary = config.colorPrimario || "#f5f5f5";
+      root.style.setProperty("--bg", "#050505");
       root.style.setProperty("--accent", primary);
-      root.style.setProperty("--accent-strong", "#222222");
-      root.style.setProperty("--ink", "#111111");
-      root.style.setProperty("--line", "rgba(0,0,0,0.18)");
-      root.style.setProperty("--panel", "#ffffff");
-      root.style.setProperty("--panel-strong", "#ffffff");
-      root.style.setProperty("--muted", "#4a4a4a");
+      root.style.setProperty("--accent-strong", "#e6e6e6");
+      root.style.setProperty("--ink", "#f5f5f5");
+      root.style.setProperty("--line", "rgba(255,255,255,0.24)");
+      root.style.setProperty("--panel", "#0f0f0f");
+      root.style.setProperty("--panel-strong", "#151515");
+      root.style.setProperty("--muted", "#b8b8b8");
     }
     async function fetchJson(url, options) {
       const response = await fetch(buildApiUrl(url), options);
-      const raw = await response.text();
-      let data = {};
-      if (raw) {
-        try {
-          data = JSON.parse(raw);
-        } catch {
-          data = { error: raw };
-        }
-      }
+      const data = await response.json();
       if (!response.ok) {
-        const reason = data.error || data.message || `Error HTTP ${response.status}`;
-        const error = new Error(reason);
+        const error = new Error(data.error || "Error de sincronizacion");
         error.status = response.status;
         throw error;
       }
@@ -54491,7 +54523,6 @@
         const data = normalizeItem(await fetchJson(`/api/articulos/${encodeURIComponent(codigo)}`));
         setSelectedCode(data.codigo);
         setSelected(data);
-        setSelectedImageDraft({ dataUrl: "", fileName: "" });
         setForm({
           descripcion: data.descripcion || "",
           costo: String((_a2 = data.costo) != null ? _a2 : ""),
@@ -54506,7 +54537,6 @@
         if (data) {
           setSelectedCode(data.codigo);
           setSelected(data);
-          setSelectedImageDraft({ dataUrl: "", fileName: "" });
           setForm({
             descripcion: data.descripcion || "",
             costo: String((_e = data.costo) != null ? _e : ""),
@@ -54559,76 +54589,6 @@
       setCreateImageDraft(compressed);
       setMessage({ type: "success", text: "Imagen preparada para el nuevo articulo." });
     }
-    function openCreateImagePicker() {
-      const input = createImageInputRef.current;
-      if (!input) {
-        setMessage({ type: "error", text: "No se pudo abrir la galeria en este dispositivo." });
-        return;
-      }
-      input.value = "";
-      input.click();
-    }
-    function openSelectedImagePicker() {
-      const input = selectedImageInputRef.current;
-      if (!input) {
-        setMessage({ type: "error", text: "No se pudo abrir la galeria en este dispositivo." });
-        return;
-      }
-      input.value = "";
-      input.click();
-    }
-    async function downloadImagesForOffline() {
-      if (status.offline) {
-        setMessage({ type: "info", text: "Conectate a la PC para descargar las fotos y dejarlas offline." });
-        return;
-      }
-      const cachedItems = readJson(CACHE_KEY, []);
-      const imageUrls = [
-        ...(cachedItems || []).map((item) => item == null ? void 0 : item.imagenUrl),
-        ...(items || []).map((item) => item == null ? void 0 : item.imagenUrl),
-        (selected == null ? void 0 : selected.imagenUrl) || null
-      ].filter((value) => isApiImageUrl(value));
-      const uniqueUrls = Array.from(new Set(imageUrls));
-      if (uniqueUrls.length === 0) {
-        setMessage({ type: "info", text: "No hay fotos remotas para descargar en este momento." });
-        return;
-      }
-      setOfflineImageDownload({ running: true, done: 0, total: uniqueUrls.length });
-      let downloaded = 0;
-      let failed = 0;
-      let imageCache = null;
-      if (typeof window.caches !== "undefined") {
-        try {
-          imageCache = await window.caches.open(IMAGE_CACHE_NAME);
-        } catch {
-          imageCache = null;
-        }
-      }
-      for (let index = 0; index < uniqueUrls.length; index += 1) {
-        const imageUrl = uniqueUrls[index];
-        try {
-          const absoluteUrl = buildApiUrl(imageUrl);
-          const response = await fetch(absoluteUrl, { cache: "reload" });
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-          if (imageCache) {
-            await imageCache.put(absoluteUrl, response.clone());
-          }
-          downloaded += 1;
-        } catch {
-          failed += 1;
-        } finally {
-          setOfflineImageDownload({ running: true, done: index + 1, total: uniqueUrls.length });
-        }
-      }
-      setOfflineImageDownload({ running: false, done: uniqueUrls.length, total: uniqueUrls.length });
-      if (failed > 0) {
-        setMessage({ type: "info", text: `Fotos descargadas: ${downloaded}. Fallidas: ${failed}.` });
-        return;
-      }
-      setMessage({ type: "success", text: `Fotos descargadas para uso offline: ${downloaded}.` });
-    }
     function enqueue(action) {
       const nextQueue = [...queueRef.current, { id: nextId(), createdAt: nowIso(), ...action }];
       persistQueue(nextQueue);
@@ -54657,10 +54617,6 @@
         }
         return !sameValue(serverArticle[field], baseSnapshot[field]);
       });
-    }
-    function isPermanentQueueError(error) {
-      const status2 = Number((error == null ? void 0 : error.status) || 0);
-      return [400, 404, 409, 410, 422].includes(status2);
     }
     async function flushQueue() {
       if (queueRef.current.length === 0) {
@@ -54754,6 +54710,23 @@
                 throw error;
               }
             }
+          } else if (action.type === "nota-create") {
+            await fetchJson("/api/notas", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(action.payload)
+            });
+            pushHistory({ status: "synced", summary: formatOpLabel(action), reason: "" });
+          } else if (action.type === "nota-update") {
+            await fetchJson(`/api/notas/${action.notaId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(action.payload)
+            });
+            pushHistory({ status: "synced", summary: formatOpLabel(action), reason: "" });
+          } else if (action.type === "nota-delete") {
+            await fetchJson(`/api/notas/${action.notaId}`, { method: "DELETE" });
+            pushHistory({ status: "synced", summary: formatOpLabel(action), reason: "" });
           }
           removeQueueItem(action.id);
         } catch (error) {
@@ -54761,21 +54734,13 @@
             setMessage({ type: "info", text: "La PC esta conectada: no se aplican cambios del telefono mientras siga conectada." });
             break;
           }
-          if (isPermanentQueueError(error)) {
-            removeQueueItem(action.id);
-            pushConflict({
-              status: "conflict",
-              summary: formatOpLabel(action),
-              reason: `No se pudo sincronizar: ${error.message}`
-            });
-            continue;
-          }
           setMessage({ type: "error", text: `Quedo una operacion pendiente: ${error.message}` });
           setStatus((prev) => ({ ...prev, offline: true }));
           break;
         }
       }
       await loadItems();
+      await loadNotas();
     }
     function applyOfflineStock(codigo, delta) {
       const current = readJson(CACHE_KEY, []);
@@ -54793,14 +54758,7 @@
     }
     function applyOfflineArticleUpdate(codigo, payload) {
       const current = readJson(CACHE_KEY, []);
-      const next = current.map((item) => {
-        if (item.codigo !== codigo) return item;
-        return normalizeItem({
-          ...item,
-          ...payload,
-          imagenUrl: payload.imagenDataUrl || item.imagenUrl
-        });
-      });
+      const next = current.map((item) => item.codigo === codigo ? normalizeItem({ ...item, ...payload }) : item);
       persistCache(next);
       if (!deferredSearch) setItems(next);
       const updated = next.find((item) => item.codigo === codigo) || null;
@@ -54812,7 +54770,7 @@
         ...payload,
         precioFinal: Number(payload.costo || 0) * (1 + Number(payload.ganancia || 0) / 100) * (1 + Number(payload.iva || 0) / 100),
         stockCritico: Number(payload.stock || 0) <= Number(payload.stockMinimo || 0),
-        imagenUrl: payload.imagenDataUrl || null
+        imagenUrl: null
       });
       const next = [created, ...current.filter((item) => item.codigo !== created.codigo)];
       persistCache(next);
@@ -54911,32 +54869,8 @@
       return () => clearInterval(timer);
     }, [backupFolderUrl, autoBackupSync, driveToken]);
     (0, import_react.useEffect)(() => {
-      let cleanupServiceWorkerListener = () => void 0;
       if ("serviceWorker" in navigator) {
-        const swReloadKey = "mercadopg.mobile.sw-reloaded.v1";
-        const onControllerChange = () => {
-          if (sessionStorage.getItem(swReloadKey) === "1") {
-            return;
-          }
-          sessionStorage.setItem(swReloadKey, "1");
-          window.location.reload();
-        };
-        navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
         navigator.serviceWorker.register("/service-worker.js").then((registration) => {
-          if (registration.waiting) {
-            registration.waiting.postMessage({ type: "SKIP_WAITING" });
-          }
-          registration.addEventListener("updatefound", () => {
-            const installing = registration.installing;
-            if (!installing) {
-              return;
-            }
-            installing.addEventListener("statechange", () => {
-              if (installing.state === "installed" && navigator.serviceWorker.controller) {
-                installing.postMessage({ type: "SKIP_WAITING" });
-              }
-            });
-          });
           if (requestedVersion) {
             const lastVersion = localStorage.getItem(CLIENT_VERSION_KEY);
             if (lastVersion !== requestedVersion) {
@@ -54945,9 +54879,6 @@
             }
           }
         }).catch(() => void 0);
-        cleanupServiceWorkerListener = () => {
-          navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
-        };
       }
       const onBeforeInstallPrompt = (event) => {
         event.preventDefault();
@@ -54980,6 +54911,7 @@
         if (online) {
           loadCatalogs().catch(() => void 0);
           loadItems().catch(() => void 0);
+          loadNotas().catch(() => void 0);
           flushQueue().catch(() => void 0);
           syncSnapshotFromPc().catch(() => void 0);
         } else {
@@ -54995,28 +54927,24 @@
                 if (ok) {
                   loadCatalogs().catch(() => void 0);
                   loadItems().catch(() => void 0);
+                  loadNotas().catch(() => void 0);
                   syncSnapshotFromPc().catch(() => void 0);
                 }
               });
             }).catch(() => void 0);
           }
           setItems(readJson(CACHE_KEY, []));
+          setNotas(readJson(NOTES_KEY, []));
           const cachedCatalogs = readJson(CATALOGS_KEY, { config: {} });
           applyThemeFromConfig(cachedCatalogs.config || {});
           setMessage({ type: "info", text: "Sin conexi\xF3n: mostrando lo \xFAltimo guardado hasta recuperar la red." });
         }
       });
       return () => {
-        cleanupServiceWorkerListener();
         window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
         window.removeEventListener("appinstalled", onInstalled);
       };
     }, []);
-    (0, import_react.useEffect)(() => {
-      if (activeSection === "sync") {
-        loadDriveDir().catch(() => void 0);
-      }
-    }, [activeSection]);
     (0, import_react.useEffect)(() => {
       if (selectedCode) {
         localStorage.setItem(LAST_SELECTED_CODE_KEY, selectedCode);
@@ -55092,37 +55020,11 @@
       loadItems().catch(() => void 0);
     }, [deferredSearch, apiBase]);
     (0, import_react.useEffect)(() => {
-      if (status.offline) {
-        return;
-      }
-      const sources = [
-        ...(items || []).map((item) => item.imagenUrl),
-        (selected == null ? void 0 : selected.imagenUrl) || null
-      ].filter((value) => isApiImageUrl(value));
-      if (sources.length === 0) {
-        return;
-      }
-      const uniqueUrls = Array.from(new Set(sources)).slice(0, 120);
-      const controller = new AbortController();
-      const prefetch = async () => {
-        for (const imageUrl of uniqueUrls) {
-          try {
-            await fetch(buildApiUrl(imageUrl), {
-              signal: controller.signal,
-              cache: "force-cache"
-            });
-          } catch {
-          }
-        }
-      };
-      prefetch().catch(() => void 0);
-      return () => controller.abort();
-    }, [items, selected == null ? void 0 : selected.imagenUrl, status.offline, apiBase]);
-    (0, import_react.useEffect)(() => {
       const onOnline = () => {
         loadStatus().then((online) => {
           if (online) {
             loadCatalogs().catch(() => void 0);
+            loadNotas().catch(() => void 0);
             flushQueue().catch(() => void 0);
             syncSnapshotFromPc().catch(() => void 0);
           }
@@ -55142,6 +55044,7 @@
         if (!status.offline) {
           loadCatalogs().catch(() => void 0);
           loadItems().catch(() => void 0);
+          loadNotas().catch(() => void 0);
         }
       }, 3e4);
       return () => clearInterval(timer);
@@ -55206,6 +55109,7 @@
         const data = JSON.parse(event.data);
         if (data.type === "data-changed") {
           loadItems().catch(() => void 0);
+          loadNotas().catch(() => void 0);
           if (data.codigo && data.codigo === selectedCode) {
             loadOne(data.codigo).catch(() => void 0);
           }
@@ -55257,6 +55161,7 @@
           body: JSON.stringify(payload)
         });
         updateCachedItem(data);
+        setSelectedImageDraft({ dataUrl: "", fileName: "" });
         setMessage({ type: "success", text: `Articulo ${data.codigo} actualizado` });
         setStatus((prev) => ({ ...prev, offline: false }));
       } catch {
@@ -55327,6 +55232,30 @@
         setCreateOpen(false);
         setStatus((prev) => ({ ...prev, offline: true }));
         setMessage({ type: "info", text: "Articulo guardado en el telefono. Se creara en la PC cuando vuelva la conexion." });
+      }
+    }
+    async function handleCreateNota(titulo, tipo = "normal") {
+      const cleanTitle = String(titulo || "Sin t\xEDtulo").trim();
+      const id = nextId();
+      const payload = { id, titulo: cleanTitle, contenido: tipo === "checklist" ? "[]" : "", tipo };
+      const next = [payload, ...notas];
+      persistNotas(next);
+      try {
+        await fetchJson("/api/notas", { method: "POST", body: JSON.stringify(payload) });
+      } catch {
+        enqueue({ type: "nota-create", payload });
+      }
+    }
+    async function handleUpdateNota(notaId, contenido) {
+      const current = notas.find((nota) => nota.id === notaId);
+      if (!current || contenido === current.contenido) return;
+      const nextContenido = String(contenido != null ? contenido : "");
+      const updated = { ...current, contenido: nextContenido };
+      persistNotas(notas.map((n) => n.id === notaId ? updated : n));
+      try {
+        await fetchJson(`/api/notas/${notaId}`, { method: "PUT", body: JSON.stringify(updated) });
+      } catch {
+        enqueue({ type: "nota-update", notaId, payload: updated });
       }
     }
     async function handleInstall() {
@@ -55447,19 +55376,7 @@
     function clearHistory() {
       persistHistory([]);
     }
-    const rankingByStock = (0, import_react.useMemo)(() => {
-      const source = readJson(CACHE_KEY, []).map(normalizeItem);
-      return source.slice().sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0)).slice(0, 8);
-    }, [items]);
-    const rankingByValue = (0, import_react.useMemo)(() => {
-      const source = readJson(CACHE_KEY, []).map(normalizeItem);
-      return source.slice().sort((a, b) => Number(b.precioFinal || 0) - Number(a.precioFinal || 0)).slice(0, 8);
-    }, [items]);
-    const faltantes = (0, import_react.useMemo)(() => {
-      const source = readJson(CACHE_KEY, []).map(normalizeItem);
-      return source.filter((item) => Number(item.stock || 0) <= Number(item.stockMinimo || 0)).sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0)).slice(0, 12);
-    }, [items]);
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "shell" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "status-bar" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "app-title" }, "MercadoPG"), /* @__PURE__ */ import_react.default.createElement("div", { className: "status-pills" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `pill ${status.offline ? "pill-offline" : "pill-online"}` }, status.offline ? pcHost ? `PC: ${pcHost} \u2717` : "Sin conexi\xF3n" : `PC: ${pcHost || "conectado"} \u2713`), pendingCount > 0 ? /* @__PURE__ */ import_react.default.createElement("span", { className: "pill pill-pending" }, "Pendientes: ", pendingCount) : null)), /* @__PURE__ */ import_react.default.createElement("div", { className: "notice info" }, "Desde el telefono podes crear, editar, eliminar y mover stock. Si no hay red, los cambios quedan pendientes y se sincronizan solos."), /* @__PURE__ */ import_react.default.createElement("section", { className: "triple-nav", role: "tablist", "aria-label": "Navegacion principal" }, /* @__PURE__ */ import_react.default.createElement(
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "shell" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "status-bar" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "app-title" }, "MercadoPG"), /* @__PURE__ */ import_react.default.createElement("div", { className: "status-pills" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `pill ${status.offline ? "pill-offline" : "pill-online"}` }, status.offline ? pcHost ? `PC: ${pcHost} \u2717` : "Sin conexi\xF3n" : `PC: ${pcHost || "conectado"} \u2713`), pendingCount > 0 ? /* @__PURE__ */ import_react.default.createElement("span", { className: "pill pill-pending" }, "Pendientes: ", pendingCount) : null)), message ? /* @__PURE__ */ import_react.default.createElement("div", { className: `notice ${message.type}` }, message.text) : null, /* @__PURE__ */ import_react.default.createElement("section", { className: "triple-nav", role: "tablist", "aria-label": "Navegacion principal" }, /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         type: "button",
@@ -55481,12 +55398,21 @@
       "button",
       {
         type: "button",
+        className: activeSection === "notas" ? "active" : "",
+        onClick: () => setActiveSection("notas"),
+        "aria-selected": activeSection === "notas"
+      },
+      "Notas"
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        type: "button",
         className: activeSection === "sync" ? "active" : "",
         onClick: () => setActiveSection("sync"),
         "aria-selected": activeSection === "sync"
       },
       "Sincronizacion"
-    )), message ? /* @__PURE__ */ import_react.default.createElement("div", { className: `notice ${message.type}` }, message.text) : null, activeSection === "mercado" ? /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("section", { className: "toolbar" }, /* @__PURE__ */ import_react.default.createElement(
+    )), activeSection === "mercado" && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "notice info" }, "Desde el telefono podes crear, editar, eliminar y mover stock. Si no hay red, los cambios quedan pendientes y se sincronizan solos."), /* @__PURE__ */ import_react.default.createElement("section", { className: "toolbar" }, /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         type: "search",
@@ -55494,13 +55420,12 @@
         value: search,
         onChange: (event) => setSearch(event.target.value)
       }
-    ), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => setCreateOpen((prev) => !prev) }, createOpen ? "Cerrar nuevo" : "Nuevo"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadItems(search) }, loading ? "Actualizando..." : "Refrescar"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => startScanner() }, "Escanear")), scannerOpen ? /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Escaner de codigo"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: stopScanner }, "Cerrar camara"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "scanner-box" }, /* @__PURE__ */ import_react.default.createElement("video", { ref: videoRef, className: "scanner-video", playsInline: true, muted: true })), scannerError ? /* @__PURE__ */ import_react.default.createElement("div", { className: "notice error" }, scannerError) : /* @__PURE__ */ import_react.default.createElement("div", { className: "notice info" }, "Apunta la camara al codigo de barras.")) : null, createOpen ? /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Nuevo articulo"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => setCreateOpen(false) }, "Cancelar"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-grid create-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Imagen desde la galer\xEDa del tel\xE9fono"), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: openCreateImagePicker }, "Cargar imagen"), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: () => setCreateImageDraft({ dataUrl: "", fileName: "" }) }, "Quitar imagen")), /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => setCreateOpen((prev) => !prev) }, createOpen ? "Cerrar nuevo" : "Nuevo"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadItems(search) }, loading ? "Actualizando..." : "Refrescar"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => startScanner() }, "Escanear")), scannerOpen ? /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Escaner de codigo"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: stopScanner }, "Cerrar camara"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "scanner-box" }, /* @__PURE__ */ import_react.default.createElement("video", { ref: videoRef, className: "scanner-video", playsInline: true, muted: true })), scannerError ? /* @__PURE__ */ import_react.default.createElement("div", { className: "notice error" }, scannerError) : /* @__PURE__ */ import_react.default.createElement("div", { className: "notice info" }, "Apunta la camara al codigo de barras.")) : null, createOpen ? /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Nuevo articulo"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => setCreateOpen(false) }, "Cancelar"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-grid create-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Imagen desde el tel\xE9fono"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
-        ref: createImageInputRef,
-        className: "visually-hidden-input",
         type: "file",
         accept: "image/*",
+        capture: "environment",
         onChange: (event) => handleCreateImageChange(event.target.files && event.target.files[0]).catch(() => void 0)
       }
     ), createImageDraft.dataUrl ? /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-media" }, /* @__PURE__ */ import_react.default.createElement("img", { className: "detail-image", src: createImageDraft.dataUrl, alt: "Vista previa nueva imagen" })) : null), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "C\xF3digo"), /* @__PURE__ */ import_react.default.createElement(
@@ -55586,7 +55511,7 @@
       },
       /* @__PURE__ */ import_react.default.createElement("option", { value: "0" }, "Sin categor\xEDa"),
       (catalogs.categorias || []).map((categoria) => /* @__PURE__ */ import_react.default.createElement("option", { key: categoria.id, value: String(categoria.id) }, categoria.nombre))
-    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: handleCreate }, "Crear art\xEDculo"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => setCreateForm(defaultCreateForm(catalogs.config || {})) }, "Limpiar"))) : null, /* @__PURE__ */ import_react.default.createElement("div", { className: "hero-grid" }, /* @__PURE__ */ import_react.default.createElement("section", { className: "list" }, items.length === 0 ? /* @__PURE__ */ import_react.default.createElement("div", { className: "empty" }, "No hay articulos para mostrar.") : items.map((item) => /* @__PURE__ */ import_react.default.createElement(
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: handleCreate }, "Crear art\xEDculo"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => setCreateForm(defaultCreateForm(catalogs.config || {})) }, "Limpiar"))) : null, !scannerOpen && !createOpen && /* @__PURE__ */ import_react.default.createElement("div", { className: "hero-grid" }, /* @__PURE__ */ import_react.default.createElement("section", { className: "list" }, items.length === 0 ? /* @__PURE__ */ import_react.default.createElement("div", { className: "empty" }, "No hay articulos para mostrar.") : items.map((item) => /* @__PURE__ */ import_react.default.createElement(
       "article",
       {
         key: item.codigo,
@@ -55617,13 +55542,12 @@
           e.currentTarget.style.display = "none";
         }
       }
-    )) : null, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Actualizar imagen desde la galer\xEDa del tel\xE9fono"), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: openSelectedImagePicker }, "Cargar imagen"), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: () => setSelectedImageDraft({ dataUrl: "", fileName: "" }) }, "Quitar imagen")), /* @__PURE__ */ import_react.default.createElement(
+    )) : null, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Actualizar imagen desde el tel\xE9fono"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
-        ref: selectedImageInputRef,
-        className: "visually-hidden-input",
         type: "file",
         accept: "image/*",
+        capture: "environment",
         onChange: (event) => handleSelectedImageChange(event.target.files && event.target.files[0]).catch(() => void 0)
       }
     ), selectedImageDraft.dataUrl ? /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-media" }, /* @__PURE__ */ import_react.default.createElement("img", { className: "detail-image", src: selectedImageDraft.dataUrl, alt: "Vista previa imagen a guardar" })) : null), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Descripci\xF3n"), /* @__PURE__ */ import_react.default.createElement(
@@ -55678,7 +55602,26 @@
         value: quantity,
         onChange: (event) => setQuantity(event.target.value)
       }
-    )), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("entrada") }, "Entrada"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("salida") }, "Salida")), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: handleSave }, "Guardar cambios"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: handleDelete }, "Eliminar art\xEDculo")))))) : null, activeSection === "ranking" ? /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Ranking y faltantes")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Top stock"), rankingByStock.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin datos todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, rankingByStock.map((item) => /* @__PURE__ */ import_react.default.createElement("li", { key: `stock-${item.codigo}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo, " \xB7 ", item.stock, " unidades"))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Top precio"), rankingByValue.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin datos todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, rankingByValue.map((item) => /* @__PURE__ */ import_react.default.createElement("li", { key: `value-${item.codigo}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo, " \xB7 ", formatCurrency(item.precioFinal)))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Faltantes"), faltantes.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "No hay faltantes cr\xEDticos.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, faltantes.map((item) => /* @__PURE__ */ import_react.default.createElement("li", { key: `low-${item.codigo}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo, " \xB7 stock ", item.stock, " / m\xEDnimo ", item.stockMinimo))))))) : null, activeSection === "sync" ? /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Conexi\xF3n y cache"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadStatus() }, "Estado"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadItems() }, "Recargar cache"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => flushQueue() }, "Reintentar cola"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: downloadImagesForOffline, disabled: offlineImageDownload.running }, offlineImageDownload.running ? `Descargando fotos (${offlineImageDownload.done}/${offlineImageDownload.total})` : "Descargar fotos offline"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Host o IP de la PC"), /* @__PURE__ */ import_react.default.createElement(
+    )), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("entrada") }, "Entrada"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("salida") }, "Salida")), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: handleSave }, "Guardar cambios"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: handleDelete }, "Eliminar art\xEDculo")))))), activeSection === "ranking" && /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Ranking y faltantes")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Top stock"), rankingByStock.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin datos todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, rankingByStock.map((item) => /* @__PURE__ */ import_react.default.createElement("li", { key: `stock-${item.codigo}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo, " \xB7 ", item.stock, " unidades"))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Top precio"), rankingByValue.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin datos todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, rankingByValue.map((item) => /* @__PURE__ */ import_react.default.createElement("li", { key: `value-${item.codigo}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo, " \xB7 ", formatCurrency(item.precioFinal)))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Faltantes"), faltantes.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "No hay faltantes cr\xEDticos.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, faltantes.map((item) => /* @__PURE__ */ import_react.default.createElement("li", { key: `low-${item.codigo}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo, " \xB7 stock ", item.stock, " / m\xEDnimo ", item.stockMinimo))))))), activeSection === "notas" && /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Mis Notas y Checklists"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => {
+      const titulo = prompt("T\xEDtulo de la nota:");
+      if (titulo === null) return;
+      const tipo = confirm("\xBFDeseas que sea una lista de tareas (Checklist)?") ? "checklist" : "normal";
+      handleCreateNota(titulo, tipo);
+    } }, " Nueva Nota")), /* @__PURE__ */ import_react.default.createElement("div", { className: "list" }, notas.map((nota) => /* @__PURE__ */ import_react.default.createElement("div", { key: nota.id, className: "card" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "note-card-head" }, /* @__PURE__ */ import_react.default.createElement("h3", null, nota.tipo === "checklist" ? "\u{1F4CB} " : "\u{1F4DD} ", nota.titulo), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleDeleteNota(nota.id) }, "Eliminar")), nota.tipo === "checklist" ? /* @__PURE__ */ import_react.default.createElement(
+      ChecklistEditor,
+      {
+        contenido: nota.contenido,
+        onSave: (newContent) => handleUpdateNota(nota.id, newContent)
+      }
+    ) : /* @__PURE__ */ import_react.default.createElement(
+      "textarea",
+      {
+        className: "note-textarea",
+        defaultValue: nota.contenido,
+        onBlur: (e) => handleUpdateNota(nota.id, e.target.value),
+        placeholder: "Escribe aqui tu nota..."
+      }
+    ))))), activeSection === "sync" && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Conexi\xF3n y cache"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadStatus() }, "Estado"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadItems() }, "Recargar cache"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => flushQueue() }, "Reintentar cola"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Host o IP de la PC"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         value: pcHost,
@@ -55720,7 +55663,7 @@
         onChange: (event) => setDriveDir(event.target.value),
         placeholder: "G:\\\\Mi unidad\\\\MercadoPG"
       }
-    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => saveDriveDir() }, "Guardar ruta Drive PC"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadDriveDir() }, "Leer ruta actual")))), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Cola de actualizaciones (", pendingOps.length, ")")), pendingOps.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "No hay operaciones pendientes.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, pendingOps.slice(0, 30).map((op) => /* @__PURE__ */ import_react.default.createElement("li", { key: op.id }, /* @__PURE__ */ import_react.default.createElement("strong", null, formatOpLabel(op)), /* @__PURE__ */ import_react.default.createElement("span", null, shortDate(op.createdAt)))))), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Conflictos (", conflicts.length, ") e historial (", history.length, ")"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: clearConflicts }, "Limpiar conflictos"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: clearHistory }, "Limpiar historial"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Conflictos"), conflicts.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin conflictos.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, conflicts.slice(0, 30).map((entry, index) => /* @__PURE__ */ import_react.default.createElement("li", { key: `conflict-${index}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, entry.summary || "Conflicto"), /* @__PURE__ */ import_react.default.createElement("span", null, entry.reason || "Sin detalle", " \xB7 ", shortDate(entry.at)))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Historial sync"), history.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin historial todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, history.slice(0, 40).map((entry, index) => /* @__PURE__ */ import_react.default.createElement("li", { key: `history-${index}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, entry.summary || "Sin resumen"), /* @__PURE__ */ import_react.default.createElement("span", null, entry.reason || "OK", " \xB7 ", shortDate(entry.at))))))))) : null);
+    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => saveDriveDir() }, "Guardar ruta Drive PC"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadDriveDir() }, "Leer ruta actual")))), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Cola de actualizaciones (", pendingOps.length, ")")), pendingOps.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "No hay operaciones pendientes.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, pendingOps.slice(0, 30).map((op) => /* @__PURE__ */ import_react.default.createElement("li", { key: op.id }, /* @__PURE__ */ import_react.default.createElement("strong", null, formatOpLabel(op)), /* @__PURE__ */ import_react.default.createElement("span", null, shortDate(op.createdAt)))))), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Conflictos (", conflicts.length, ") e historial (", history.length, ")"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: clearConflicts }, "Limpiar conflictos"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: clearHistory }, "Limpiar historial"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Conflictos"), conflicts.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin conflictos.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, conflicts.slice(0, 30).map((entry, index) => /* @__PURE__ */ import_react.default.createElement("li", { key: `conflict-${index}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, entry.summary || "Conflicto"), /* @__PURE__ */ import_react.default.createElement("span", null, entry.reason || "Sin detalle", " \xB7 ", shortDate(entry.at)))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Historial sync"), history.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin historial todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, history.slice(0, 40).map((entry, index) => /* @__PURE__ */ import_react.default.createElement("li", { key: `history-${index}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, entry.summary || "Sin resumen"), /* @__PURE__ */ import_react.default.createElement("span", null, entry.reason || "OK", " \xB7 ", shortDate(entry.at))))))))));
   }
   (0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ import_react.default.createElement(App, null));
 })();

@@ -54,6 +54,7 @@ class MainController {
     document.getElementById('btnFaltantes').addEventListener('click', () => this.verFaltantes());
     document.getElementById('btnExportar').addEventListener('click', () => this.exportar());
     document.getElementById('btnConfig').addEventListener('click', () => this.abrirConfig());
+    document.getElementById('btnNotas').addEventListener('click', () => this.api.send('open-notas'));
     document.getElementById('btnActualizar').addEventListener('click', () => this.actualizarTablaCompleta());
     // Botón para generar documento Word
     const btnDoc = document.getElementById('btnGenerarDoc');

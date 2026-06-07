@@ -835,3 +835,4 @@ class ArticuloFormController {
 
 // Inicializar el controlador
 new ArticuloFormController();21
+new ArticuloFormController();

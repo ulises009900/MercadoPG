@@ -190,6 +190,7 @@ let faltantesWindow = null;
 let configWindow = null;
 let scannerWindow = null;
 let exportWindow = null;
+let notasWindow = null;
 let tempExportData = []; // Variable temporal para pasar datos a la ventana de exportación
 const mobileServer = new MobileServer({
   services,
@@ -219,7 +220,10 @@ const mutatingServiceCalls = new Set([
   'ArticuloService.actualizarGananciaMasivo',
   'StockService.entrada',
   'StockService.salida',
-  'ConfigService.guardarTodas'
+  'ConfigService.guardarTodas',
+  'NotaService.guardar',
+  'NotaService.actualizar',
+  'NotaService.eliminar'
 ]);
 
 function getMobileClientVersion() {
@@ -467,6 +471,33 @@ function createExportWindow() {
 }
 
 /**
+ * Crea ventana de notas
+ */
+function createNotasWindow() {
+  if (notasWindow) {
+    notasWindow.focus();
+    return;
+  }
+
+  notasWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  notasWindow.loadFile(path.join(__dirname, 'views', 'notas.html'));
+  notasWindow.setMenu(null);
+
+  notasWindow.on('closed', () => {
+    notasWindow = null;
+  });
+}
+
+/**
  * Event Handlers
  */
 
@@ -582,6 +613,11 @@ ipcMain.on('open-faltantes', () => {
 // Abrir ventana de configuración
 ipcMain.on('open-config', () => {
   createConfigWindow();
+});
+
+// Abrir ventana de notas
+ipcMain.on('open-notas', () => {
+  createNotasWindow();
 });
 
 // Abrir ventana de exportación (recibe los datos de la tabla)

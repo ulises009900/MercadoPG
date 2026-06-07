@@ -2,24 +2,24 @@
 
 :root {
   /* Fondo general de toda la app movil conectada. */
-  --bg: #ffffff;
+  --bg: #050505;
   /* Fondo principal de tarjetas, formularios y bloques. */
-  --panel: #ffffff;
+  --panel: #0f0f0f;
   /* Fondo de tarjetas internas o zonas mas solidas. */
-  --panel-strong: #ffffff;
+  --panel-strong: #151515;
   /* Texto principal de casi toda la interfaz. */
-  --ink: #111111;
+  --ink: #f5f5f5;
   /* Texto secundario: ayudas, subtitulos y detalles. */
-  --muted: #4a4a4a;
+  --muted: #b8b8b8;
   /* Color de acento principal: titulos y destacados. */
-  --accent: #111111;
+  --accent: #f5f5f5;
   /* Variante mas fuerte del acento para resaltar secciones. */
-  --accent-strong: #222222;
+  --accent-strong: #e6e6e6;
   /* Bordes y divisiones entre paneles. */
-  --line: rgba(0, 0, 0, 0.18);
+  --line: rgba(255, 255, 255, 0.24);
   --success: #0a9e74;
   --danger: #d94b61;
-  --shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
+  --shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
 }
 
 * { box-sizing: border-box; }
@@ -45,14 +45,14 @@ body::after {
 
 body::before {
   background-image:
-    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 34px 34px;
-  opacity: 0.14;
+  opacity: 0.12;
 }
 
 body::after {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(245, 245, 245, 0.76) 100%);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(7, 7, 7, 0.85) 100%);
 }
 
 .shell {
@@ -85,9 +85,9 @@ body::after {
   flex-wrap: wrap;
 }
 
-.pill-online { border-color: rgba(0, 0, 0, 0.3); color: #111111; background: #f4f4f4; }
-.pill-offline { border-color: rgba(0, 0, 0, 0.35); color: #111111; background: #efefef; }
-.pill-pending { border-color: rgba(0, 0, 0, 0.3); color: #111111; background: #f7f7f7; }
+.pill-online { border-color: rgba(255, 255, 255, 0.34); color: #f5f5f5; background: #141414; }
+.pill-offline { border-color: rgba(255, 255, 255, 0.38); color: #f5f5f5; background: #1a1a1a; }
+.pill-pending { border-color: rgba(255, 255, 255, 0.34); color: #f5f5f5; background: #131313; }
 
 .hero,
 .toolbar,
@@ -154,36 +154,36 @@ body::after {
 .toolbar input,
 .detail input,
 .detail select {
-  background: #ffffff;
-  color: #111111;
+  background: #101010;
+  color: var(--ink);
 }
 
 .toolbar input::placeholder,
 .detail input::placeholder {
-  color: #6f6f6f;
+  color: #a3a3a3;
 }
 
 .toolbar input:focus,
 .detail input:focus,
 .detail select:focus {
   outline: none;
-  border-color: rgba(0, 0, 0, 0.44);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.12);
+  border-color: rgba(255, 255, 255, 0.44);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
 }
 
 .toolbar button,
 .detail button {
   /* Boton principal: estos dos colores forman el degradado del boton. */
-  background: #111111;
-  color: #ffffff;
+  background: #f5f5f5;
+  color: #111111;
   font-weight: 700;
 }
 
 .toolbar button.secondary,
 .detail button.secondary {
   /* Boton secundario: fondo claro y texto oscuro. */
-  background: #f2f2f2;
-  color: #111111;
+  background: #1a1a1a;
+  color: #f5f5f5;
 }
 
 .toolbar button:disabled,
@@ -214,24 +214,46 @@ body::after {
   font-size: 14px;
 }
 
+.triple-nav {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.triple-nav button {
+  min-height: 46px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #121212;
+  color: #f5f5f5;
+  font-weight: 700;
+}
+
+.triple-nav button.active {
+  background: #f5f5f5;
+  color: #111111;
+  border-color: #f5f5f5;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: #f5f5f5;
+  background: #141414;
   border: 1px solid var(--line);
   color: var(--ink);
 }
 
 .list {
   padding: 12px;
-  background: #fcfcfc;
+  background: #0b0b0b;
 }
 
 .card {
-  border: 1px solid #d6d6d6;
+  border: 1px solid var(--line);
   /* Tarjetas de articulos: usan el panel fuerte. */
   background: var(--panel-strong);
   border-radius: 20px;
@@ -256,7 +278,7 @@ body::after {
 
 .card-top > strong {
   font-size: 1.15rem;
-  color: #111111;
+  color: var(--ink);
   letter-spacing: 0.02em;
 }
 
@@ -273,7 +295,7 @@ body::after {
   object-fit: cover;
   border-radius: 12px;
   border: 1px solid var(--line);
-  background: #ededed;
+  background: #0f0f0f;
   flex: 0 0 auto;
 }
 
@@ -287,7 +309,7 @@ body::after {
 .card h3 {
   margin: 0;
   font-size: 19px;
-  color: #111111;
+  color: var(--ink);
   line-height: 1.25;
 }
 
@@ -296,9 +318,9 @@ body::after {
   margin-top: 7px;
   padding: 2px 8px;
   border-radius: 8px;
-  background: #f1f1f1;
-  border: 1px solid #dfdfdf;
-  color: #111111;
+  background: #101010;
+  border: 1px solid var(--line);
+  color: var(--ink);
   font-weight: 700;
   font-size: 0.9rem;
 }
@@ -313,8 +335,8 @@ body::after {
 .metric {
   padding: 10px;
   border-radius: 16px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: #121212;
+  border: 1px solid var(--line);
 }
 
 .metric span {
@@ -329,7 +351,7 @@ body::after {
   display: block;
   margin-top: 4px;
   font-size: 18px;
-  color: #111111;
+  color: var(--ink);
 }
 
 .critical { color: var(--danger); }
@@ -370,7 +392,7 @@ body::after {
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 10px;
-  background: #f7f7f7;
+  background: #111111;
 }
 
 .ops-col h3 {
@@ -398,7 +420,7 @@ body::after {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 8px;
-  background: #ffffff;
+  background: #151515;
   display: grid;
   gap: 3px;
 }
@@ -408,7 +430,7 @@ body::after {
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--line);
-  background: #f0f0f0;
+  background: #0f0f0f;
 }
 
 .scanner-video {
@@ -434,7 +456,7 @@ body::after {
   margin-top: 12px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: #ffffff;
+  background: #0f0f0f;
   overflow: hidden;
 }
 
@@ -472,6 +494,117 @@ body::after {
   margin-top: 14px;
 }
 
+.note-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.note-card-head h3 {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.note-card-head button {
+  width: auto;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+}
+
+.note-textarea {
+  width: 100%;
+  min-height: 110px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  resize: vertical;
+  background: #121212;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.45;
+}
+
+.note-textarea:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.44);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+.checklist-editor-mobile {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.checklist-empty {
+  margin: 0;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.checklist-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 8px;
+  background: #121212;
+}
+
+.checklist-row.done {
+  background: #1a1a1a;
+}
+
+.checklist-toggle {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+}
+
+.checklist-text {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: #0f0f0f;
+  color: var(--ink);
+  font: inherit;
+}
+
+.checklist-row.done .checklist-text {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+.checklist-text:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.4);
+  background: #161616;
+}
+
+.checklist-remove {
+  min-height: 38px;
+  padding: 0;
+  font-size: 24px;
+  line-height: 1;
+  color: #b6394e;
+}
+
+.checklist-add {
+  margin-top: 2px;
+}
+
 .notice {
   margin-top: 12px;
   padding: 12px 14px;
@@ -480,27 +613,27 @@ body::after {
 }
 
 .notice.success {
-  background: #f4f4f4;
-  color: #111111;
-  border: 1px solid rgba(0, 0, 0, 0.22);
+  background: #121212;
+  color: var(--ink);
+  border: 1px solid rgba(255, 255, 255, 0.24);
 }
 
 .notice.error {
-  background: #eeeeee;
-  color: #111111;
-  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: #1a1113;
+  color: #ffd6dd;
+  border: 1px solid rgba(217, 75, 97, 0.45);
 }
 
 .notice.info {
-  background: #f7f7f7;
-  color: #111111;
-  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: #121212;
+  color: var(--ink);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .empty {
   padding: 28px 18px;
   text-align: center;
-  color: #333333;
+  color: var(--muted);
   font-size: 15px;
 }
 
@@ -517,5 +650,31 @@ body::after {
 
   .ops-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .note-card-head {
+    align-items: stretch;
+  }
+
+  .note-card-head button {
+    min-width: 92px;
+  }
+
+  .checklist-row {
+    grid-template-columns: 26px 1fr 40px;
+    padding: 7px;
+    gap: 7px;
+  }
+
+  .checklist-text {
+    min-height: 36px;
+    font-size: 15px;
+  }
+
+  .checklist-remove {
+    min-height: 36px;
+    font-size: 22px;
   }
 }

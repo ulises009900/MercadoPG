@@ -19,6 +19,7 @@ const DRIVE_LAST_BACKUP_KEY = 'mercadopg.mobile.drive-last-backup';
 const IMAGE_MAP_KEY = 'mercadopg.mobile.image-map.v1';
 const LAST_SELECTED_CODE_KEY = 'mercadopg.mobile.last-selected-code.v1';
 const LAST_SEARCH_KEY = 'mercadopg.mobile.last-search.v1';
+const NOTES_KEY = 'mercadopg.mobile.notes.v1';
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('es-AR', {
@@ -74,6 +75,9 @@ function formatOpLabel(op) {
     case 'article-update': return `Edicion de articulo · ${base}`;
     case 'article-create': return `Alta de articulo · ${base}`;
     case 'article-delete': return `Baja de articulo · ${base}`;
+    case 'nota-create': return `Nueva nota · ${op.payload?.titulo || 'Sin titulo'}`;
+    case 'nota-update': return `Edicion de nota · ${op.payload?.titulo || 'Sin titulo'}`;
+    case 'nota-delete': return `Baja de nota`;
     default: return `Operacion · ${base}`;
   }
 }
@@ -178,6 +182,69 @@ async function fileToCompressedImage(file, maxSize = 1280, quality = 0.82) {
   };
 }
 
+function ChecklistEditor({ contenido, onSave }) {
+  const [items, setItems] = React.useState(() => {
+    try { return JSON.parse(contenido || '[]'); } catch { return []; }
+  });
+
+  const updateItems = (newItems) => {
+    setItems(newItems);
+    onSave(JSON.stringify(newItems));
+  };
+
+  const addItem = () => {
+    updateItems([...items, { checked: false, text: '' }]);
+  };
+
+  const toggleItem = (index) => {
+    const next = [...items];
+    next[index].checked = !next[index].checked;
+    updateItems(next);
+  };
+
+  const editItem = (index, text) => {
+    const next = [...items];
+    next[index].text = text;
+    updateItems(next);
+  };
+
+  const removeItem = (index) => {
+    updateItems(items.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="checklist-editor-mobile">
+      {items.length === 0 ? <p className="checklist-empty">Todavia no hay tareas. Agrega el primer item.</p> : null}
+      {items.map((item, index) => (
+        <div key={index} className={`checklist-row ${item.checked ? 'done' : ''}`}>
+          <input
+            className="checklist-toggle"
+            type="checkbox"
+            checked={item.checked}
+            onChange={() => toggleItem(index)}
+          />
+          <input
+            className="checklist-text"
+            type="text"
+            value={item.text}
+            onChange={(e) => editItem(index, e.target.value)}
+            placeholder="Escribe una tarea..."
+          />
+          <button
+            className="secondary checklist-remove"
+            type="button"
+            aria-label="Eliminar tarea"
+            onClick={() => removeItem(index)}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <button className="secondary checklist-add" type="button" onClick={addItem}>+ Agregar item</button>
+    </div>
+  );
+}
+
 function isDriveExternalUrl(value) {
   try {
     const url = new URL(String(value || ''));
@@ -251,6 +318,7 @@ function App() {
   const [search, setSearch] = useState(() => localStorage.getItem(LAST_SEARCH_KEY) || '');
   const deferredSearch = useDeferredValue(search);
   const [status, setStatus] = useState({ running: false, primaryUrl: window.location.origin, offline: false });
+  const [activeSection, setActiveSection] = useState('mercado');
   const [apiBase, setApiBase] = useState(initialApiBase);
   const [pcHost, setPcHost] = useState(() => storedPcHost);
   const [quantity, setQuantity] = useState('1');
@@ -261,6 +329,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [pendingOps, setPendingOps] = useState(() => readJson(QUEUE_KEY, []));
   const [pendingCount, setPendingCount] = useState(() => pendingOps.length);
+  const [notas, setNotas] = useState(() => readJson(NOTES_KEY, []));
   const [conflicts, setConflicts] = useState(() => readJson(CONFLICTS_KEY, []));
   const [history, setHistory] = useState(() => readJson(HISTORY_KEY, []));
   const [createOpen, setCreateOpen] = useState(false);
@@ -897,6 +966,21 @@ function App() {
     setPendingCount(nextQueue.length);
   }
 
+  async function loadNotas() {
+    try {
+      const data = await fetchJson('/api/notas');
+      setNotas(data);
+      writeJson(NOTES_KEY, data);
+    } catch {
+      setNotas(readJson(NOTES_KEY, []));
+    }
+  }
+
+  function persistNotas(nextNotas) {
+    writeJson(NOTES_KEY, nextNotas);
+    setNotas(nextNotas);
+  }
+
   function persistConflicts(next) {
     const clipped = next.slice(0, 80);
     conflictsRef.current = clipped;
@@ -981,24 +1065,24 @@ function App() {
   function applyThemeFromConfig(config = {}) {
     const root = document.documentElement;
     // Color principal de la app: afecta destacados y titulos acentuados.
-    const primary = config.colorPrimario || '#111111';
+    const primary = config.colorPrimario || '#f5f5f5';
 
     // Fondo general de toda la app movil conectada.
-    root.style.setProperty('--bg', '#ffffff');
+    root.style.setProperty('--bg', '#050505');
     // Acento principal reutilizado por titulos y botones destacados.
     root.style.setProperty('--accent', primary);
     // Variante mas intensa del acento para etiquetas secundarias.
-    root.style.setProperty('--accent-strong', '#222222');
+    root.style.setProperty('--accent-strong', '#e6e6e6');
     // Texto principal de la interfaz.
-    root.style.setProperty('--ink', '#111111');
+    root.style.setProperty('--ink', '#f5f5f5');
     // Bordes y divisiones entre paneles.
-    root.style.setProperty('--line', 'rgba(0,0,0,0.18)');
+    root.style.setProperty('--line', 'rgba(255,255,255,0.24)');
     // Fondo principal de paneles y formularios.
-    root.style.setProperty('--panel', '#ffffff');
+    root.style.setProperty('--panel', '#0f0f0f');
     // Fondo mas solido para tarjetas internas.
-    root.style.setProperty('--panel-strong', '#ffffff');
+    root.style.setProperty('--panel-strong', '#151515');
     // Texto secundario: ayudas, subtitulos y estados suaves.
-    root.style.setProperty('--muted', '#4a4a4a');
+    root.style.setProperty('--muted', '#b8b8b8');
   }
 
   async function fetchJson(url, options) {
@@ -1293,6 +1377,23 @@ function App() {
               throw error;
             }
           }
+        } else if (action.type === 'nota-create') {
+          await fetchJson('/api/notas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(action.payload)
+          });
+          pushHistory({ status: 'synced', summary: formatOpLabel(action), reason: '' });
+        } else if (action.type === 'nota-update') {
+          await fetchJson(`/api/notas/${action.notaId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(action.payload)
+          });
+          pushHistory({ status: 'synced', summary: formatOpLabel(action), reason: '' });
+        } else if (action.type === 'nota-delete') {
+          await fetchJson(`/api/notas/${action.notaId}`, { method: 'DELETE' });
+          pushHistory({ status: 'synced', summary: formatOpLabel(action), reason: '' });
         }
 
         removeQueueItem(action.id);
@@ -1308,6 +1409,7 @@ function App() {
     }
 
     await loadItems();
+    await loadNotas();
   }
 
   function applyOfflineStock(codigo, delta) {
@@ -1510,6 +1612,7 @@ function App() {
       if (online) {
         loadCatalogs().catch(() => undefined);
         loadItems().catch(() => undefined);
+        loadNotas().catch(() => undefined);
         flushQueue().catch(() => undefined);
         // Descargar snapshot completo del PC para cache offline automatica
         syncSnapshotFromPc().catch(() => undefined);
@@ -1529,6 +1632,7 @@ function App() {
                 if (ok) {
                   loadCatalogs().catch(() => undefined);
                   loadItems().catch(() => undefined);
+                  loadNotas().catch(() => undefined);
                   syncSnapshotFromPc().catch(() => undefined);
                 }
               });
@@ -1536,6 +1640,7 @@ function App() {
             .catch(() => undefined);
         }
         setItems(readJson(CACHE_KEY, []));
+        setNotas(readJson(NOTES_KEY, []));
         const cachedCatalogs = readJson(CATALOGS_KEY, { config: {} });
         applyThemeFromConfig(cachedCatalogs.config || {});
         setMessage({ type: 'info', text: 'Sin conexión: mostrando lo último guardado hasta recuperar la red.' });
@@ -1641,6 +1746,7 @@ function App() {
       loadStatus().then((online) => {
         if (online) {
           loadCatalogs().catch(() => undefined);
+          loadNotas().catch(() => undefined);
           flushQueue().catch(() => undefined);
           syncSnapshotFromPc().catch(() => undefined);
         }
@@ -1662,6 +1768,7 @@ function App() {
       if (!status.offline) {
         loadCatalogs().catch(() => undefined);
         loadItems().catch(() => undefined);
+        loadNotas().catch(() => undefined);
       }
     }, 30000);
     return () => clearInterval(timer);
@@ -1742,6 +1849,7 @@ function App() {
       const data = JSON.parse(event.data);
       if (data.type === 'data-changed') {
         loadItems().catch(() => undefined);
+        loadNotas().catch(() => undefined);
         if (data.codigo && data.codigo === selectedCode) {
           loadOne(data.codigo).catch(() => undefined);
         }
@@ -1877,6 +1985,32 @@ function App() {
       setCreateOpen(false);
       setStatus((prev) => ({ ...prev, offline: true }));
       setMessage({ type: 'info', text: 'Articulo guardado en el telefono. Se creara en la PC cuando vuelva la conexion.' });
+    }
+  }
+
+  async function handleCreateNota(titulo, tipo = 'normal') {
+    const cleanTitle = String(titulo || 'Sin título').trim();
+    const id = nextId();
+    const payload = { id, titulo: cleanTitle, contenido: tipo === 'checklist' ? '[]' : '', tipo };
+    const next = [payload, ...notas];
+    persistNotas(next);
+    try {
+      await fetchJson('/api/notas', { method: 'POST', body: JSON.stringify(payload) });
+    } catch {
+      enqueue({ type: 'nota-create', payload });
+    }
+  }
+
+  async function handleUpdateNota(notaId, contenido) {
+    const current = notas.find((nota) => nota.id === notaId);
+    if (!current || contenido === current.contenido) return;
+    const nextContenido = String(contenido ?? '');
+    const updated = { ...current, contenido: nextContenido };
+    persistNotas(notas.map(n => n.id === notaId ? updated : n));
+    try {
+      await fetchJson(`/api/notas/${notaId}`, { method: 'PUT', body: JSON.stringify(updated) });
+    } catch {
+      enqueue({ type: 'nota-update', notaId, payload: updated });
     }
   }
 
@@ -2042,273 +2176,111 @@ function App() {
         </div>
       </div>
 
-      <div className="notice info">Desde el telefono podes crear, editar, eliminar y mover stock. Si no hay red, los cambios quedan pendientes y se sincronizan solos.</div>
-
-      <section className="toolbar">
-        <input
-          type="search"
-          placeholder="Buscar por código o descripción"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <button className="secondary" onClick={() => setCreateOpen((prev) => !prev)}>{createOpen ? 'Cerrar nuevo' : 'Nuevo'}</button>
-        <button className="secondary" onClick={() => loadItems(search)}>Refrescar</button>
-        <button className="secondary" onClick={() => startScanner()}>Escanear</button>
-      </section>
-
       {message ? <div className={`notice ${message.type}`}>{message.text}</div> : null}
 
-      {scannerOpen ? (
-        <section className="detail">
-          <div className="ops-head">
-            <h2>Escaner de codigo</h2>
-            <div className="ops-actions">
-              <button className="secondary" onClick={stopScanner}>Cerrar camara</button>
-            </div>
-          </div>
-          <div className="scanner-box">
-            <video ref={videoRef} className="scanner-video" playsInline muted />
-          </div>
-          {scannerError ? <div className="notice error">{scannerError}</div> : <div className="notice info">Apunta la camara al codigo de barras.</div>}
-        </section>
-      ) : null}
+      <section className="triple-nav" role="tablist" aria-label="Navegacion principal">
+        <button
+          type="button"
+          className={activeSection === 'mercado' ? 'active' : ''}
+          onClick={() => setActiveSection('mercado')}
+          aria-selected={activeSection === 'mercado'}
+        >
+          Mercado
+        </button>
+        <button
+          type="button"
+          className={activeSection === 'ranking' ? 'active' : ''}
+          onClick={() => setActiveSection('ranking')}
+          aria-selected={activeSection === 'ranking'}
+        >
+          Ranking
+        </button>
+        <button
+          type="button"
+          className={activeSection === 'notas' ? 'active' : ''}
+          onClick={() => setActiveSection('notas')}
+          aria-selected={activeSection === 'notas'}
+        >
+          Notas
+        </button>
+        <button
+          type="button"
+          className={activeSection === 'sync' ? 'active' : ''}
+          onClick={() => setActiveSection('sync')}
+          aria-selected={activeSection === 'sync'}
+        >
+          Sincronizacion
+        </button>
+      </section>
 
-      {createOpen ? (
-        <section className="detail">
-          <div className="ops-head">
-            <h2>Nuevo articulo</h2>
-            <div className="ops-actions">
-              <button className="secondary" onClick={() => setCreateOpen(false)}>Cancelar</button>
-            </div>
-          </div>
+      {activeSection === 'mercado' && (
+        <>
+          <div className="notice info">Desde el telefono podes crear, editar, eliminar y mover stock. Si no hay red, los cambios quedan pendientes y se sincronizan solos.</div>
+          <section className="toolbar">
+            <input
+              type="search"
+              placeholder="Buscar por código o descripción"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <button className="secondary" onClick={() => setCreateOpen((prev) => !prev)}>{createOpen ? 'Cerrar nuevo' : 'Nuevo'}</button>
+            <button className="secondary" onClick={() => loadItems(search)}>{loading ? 'Actualizando...' : 'Refrescar'}</button>
+            <button className="secondary" onClick={() => startScanner()}>Escanear</button>
+          </section>
 
-          <div className="detail-grid create-grid">
-            <div className="detail-group">
-              <label>Imagen desde el teléfono</label>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(event) => handleCreateImageChange(event.target.files && event.target.files[0]).catch(() => undefined)}
-              />
-              {createImageDraft.dataUrl ? (
-                <div className="detail-media">
-                  <img className="detail-image" src={createImageDraft.dataUrl} alt="Vista previa nueva imagen" />
+          {scannerOpen ? (
+            <section className="detail">
+              <div className="ops-head">
+                <h2>Escaner de codigo</h2>
+                <div className="ops-actions">
+                  <button className="secondary" onClick={stopScanner}>Cerrar camara</button>
                 </div>
-              ) : null}
-            </div>
-            <div className="detail-group">
-              <label>Código</label>
-              <input
-                value={createForm.codigo}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, codigo: event.target.value }))}
-                placeholder="Ej: A-100"
-              />
-            </div>
-            <div className="detail-group">
-              <label>Descripción</label>
-              <input
-                value={createForm.descripcion}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, descripcion: event.target.value }))}
-                placeholder="Nombre del producto"
-              />
-            </div>
-            <div className="detail-group">
-              <label>Costo</label>
-              <input
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                value={createForm.costo}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, costo: event.target.value }))}
-              />
-            </div>
-            <div className="detail-group">
-              <label>Ganancia %</label>
-              <input
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                value={createForm.ganancia}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, ganancia: event.target.value }))}
-              />
-            </div>
-            <div className="detail-group">
-              <label>IVA %</label>
-              <input
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                value={createForm.iva}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, iva: event.target.value }))}
-              />
-            </div>
-            <div className="detail-group">
-              <label>Stock</label>
-              <input
-                type="number"
-                inputMode="numeric"
-                step="1"
-                value={createForm.stock}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, stock: event.target.value }))}
-              />
-            </div>
-            <div className="detail-group">
-              <label>Stock mínimo</label>
-              <input
-                type="number"
-                inputMode="numeric"
-                step="1"
-                value={createForm.stockMinimo}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, stockMinimo: event.target.value }))}
-              />
-            </div>
-            <div className="detail-group">
-              <label>Marca</label>
-              <select
-                value={createForm.marcaId}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, marcaId: event.target.value }))}
-              >
-                <option value="0">Sin marca</option>
-                {(catalogs.marcas || []).map((marca) => (
-                  <option key={marca.id} value={String(marca.id)}>{marca.nombre}</option>
-                ))}
-              </select>
-            </div>
-            <div className="detail-group">
-              <label>Proveedor</label>
-              <select
-                value={createForm.proveedorId}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, proveedorId: event.target.value }))}
-              >
-                <option value="0">Sin proveedor</option>
-                {(catalogs.proveedores || []).map((proveedor) => (
-                  <option key={proveedor.id} value={String(proveedor.id)}>{proveedor.nombre}</option>
-                ))}
-              </select>
-            </div>
-            <div className="detail-group">
-              <label>Categoría</label>
-              <select
-                value={createForm.categoriaId}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, categoriaId: event.target.value }))}
-              >
-                <option value="0">Sin categoría</option>
-                {(catalogs.categorias || []).map((categoria) => (
-                  <option key={categoria.id} value={String(categoria.id)}>{categoria.nombre}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+              </div>
+              <div className="scanner-box">
+                <video ref={videoRef} className="scanner-video" playsInline muted />
+              </div>
+              {scannerError ? <div className="notice error">{scannerError}</div> : <div className="notice info">Apunta la camara al codigo de barras.</div>}
+            </section>
+          ) : null}
 
-          <div className="detail-actions">
-            <button onClick={handleCreate}>Crear artículo</button>
-            <button className="secondary" onClick={() => setCreateForm(defaultCreateForm(catalogs.config || {}))}>Limpiar</button>
-          </div>
-        </section>
-      ) : null}
-
-      <div className="hero-grid">
-        <section className="list">
-          {items.length === 0 ? (
-            <div className="empty">No hay articulos para mostrar.</div>
-          ) : (
-            items.map((item) => (
-              <article
-                key={item.codigo}
-                className={`card ${selectedCode === item.codigo ? 'active' : ''}`}
-                onClick={() => handleSelectArticle(item.codigo)}
-              >
-                <div className="card-top">
-                  <div className="card-main">
-                    {item.imagenUrl ? (
-                      <img
-                        className="card-thumb"
-                        src={item.imagenUrl}
-                        alt={item.descripcion}
-                        loading="lazy"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="card-thumb placeholder">Sin foto</div>
-                    )}
-                    <div>
-                      <h3>{item.descripcion}</h3>
-                      <code>{item.codigo}</code>
-                    </div>
-                  </div>
-                  <strong className={item.stockCritico ? 'critical' : ''}>{item.stock} u.</strong>
+          {createOpen ? (
+            <section className="detail">
+              <div className="ops-head">
+                <h2>Nuevo articulo</h2>
+                <div className="ops-actions">
+                  <button className="secondary" onClick={() => setCreateOpen(false)}>Cancelar</button>
                 </div>
-                <div className="metrics">
-                  <div className="metric">
-                    <span>Precio</span>
-                    <strong>{formatCurrency(item.precioFinal)}</strong>
-                  </div>
-                  <div className="metric">
-                    <span>Minimo</span>
-                    <strong>{item.stockMinimo}</strong>
-                  </div>
-                  <div className="metric">
-                    <span>Estado</span>
-                    <strong className={item.stockCritico ? 'critical' : ''}>{item.stockCritico ? 'Critico' : 'OK'}</strong>
-                  </div>
-                </div>
-              </article>
-            ))
-          )}
-        </section>
-
-        <section className="detail">
-          {!selected ? (
-            <div className="empty">Elegí un artículo para ver su detalle. Tocá el mismo artículo nuevamente para minimizar.</div>
-          ) : (
-            <>
-              <div className="card-top">
-                <div>
-                  <p className="eyebrow">Articulo seleccionado</p>
-                  <h2>{selected.descripcion}</h2>
-                  <code>{selected.codigo}</code>
-                </div>
-                <strong className={selected.stockCritico ? 'critical' : ''}>Stock {selected.stock}</strong>
               </div>
 
-              {selected.imagenUrl ? (
-                <div className="detail-media">
-                  <img
-                    className="detail-image"
-                    src={selected.imagenUrl}
-                    alt={selected.descripcion}
-                    loading="lazy"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
+              <div className="detail-grid create-grid">
+                <div className="detail-group">
+                  <label>Imagen desde el teléfono</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(event) => handleCreateImageChange(event.target.files && event.target.files[0]).catch(() => undefined)}
+                  />
+                  {createImageDraft.dataUrl ? (
+                    <div className="detail-media">
+                      <img className="detail-image" src={createImageDraft.dataUrl} alt="Vista previa nueva imagen" />
+                    </div>
+                  ) : null}
+                </div>
+                <div className="detail-group">
+                  <label>Código</label>
+                  <input
+                    value={createForm.codigo}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, codigo: event.target.value }))}
+                    placeholder="Ej: A-100"
                   />
                 </div>
-              ) : null}
-
-              <div className="detail-group">
-                <label>Actualizar imagen desde el teléfono</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(event) => handleSelectedImageChange(event.target.files && event.target.files[0]).catch(() => undefined)}
-                />
-                {selectedImageDraft.dataUrl ? (
-                  <div className="detail-media">
-                    <img className="detail-image" src={selectedImageDraft.dataUrl} alt="Vista previa imagen a guardar" />
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="detail-grid">
                 <div className="detail-group">
                   <label>Descripción</label>
                   <input
-                    value={form.descripcion}
-                    onChange={(event) => setForm((prev) => ({ ...prev, descripcion: event.target.value }))}
+                    value={createForm.descripcion}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, descripcion: event.target.value }))}
+                    placeholder="Nombre del producto"
                   />
                 </div>
                 <div className="detail-group">
@@ -2317,18 +2289,18 @@ function App() {
                     type="number"
                     inputMode="decimal"
                     step="0.01"
-                    value={form.costo}
-                    onChange={(event) => setForm((prev) => ({ ...prev, costo: event.target.value }))}
+                    value={createForm.costo}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, costo: event.target.value }))}
                   />
                 </div>
                 <div className="detail-group">
-                  <label>Ganancia</label>
+                  <label>Ganancia %</label>
                   <input
                     type="number"
                     inputMode="decimal"
                     step="0.01"
-                    value={form.ganancia}
-                    onChange={(event) => setForm((prev) => ({ ...prev, ganancia: event.target.value }))}
+                    value={createForm.ganancia}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, ganancia: event.target.value }))}
                   />
                 </div>
                 <div className="detail-group">
@@ -2337,8 +2309,18 @@ function App() {
                     type="number"
                     inputMode="decimal"
                     step="0.01"
-                    value={form.iva}
-                    onChange={(event) => setForm((prev) => ({ ...prev, iva: event.target.value }))}
+                    value={createForm.iva}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, iva: event.target.value }))}
+                  />
+                </div>
+                <div className="detail-group">
+                  <label>Stock</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    step="1"
+                    value={createForm.stock}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, stock: event.target.value }))}
                   />
                 </div>
                 <div className="detail-group">
@@ -2347,38 +2329,459 @@ function App() {
                     type="number"
                     inputMode="numeric"
                     step="1"
-                    value={form.stockMinimo}
-                    onChange={(event) => setForm((prev) => ({ ...prev, stockMinimo: event.target.value }))}
+                    value={createForm.stockMinimo}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, stockMinimo: event.target.value }))}
                   />
                 </div>
-              </div>
-
-              <div className="stock-actions">
                 <div className="detail-group">
-                  <label>Cantidad</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    step="1"
-                    min="1"
-                    value={quantity}
-                    onChange={(event) => setQuantity(event.target.value)}
-                  />
+                  <label>Marca</label>
+                  <select
+                    value={createForm.marcaId}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, marcaId: event.target.value }))}
+                  >
+                    <option value="0">Sin marca</option>
+                    {(catalogs.marcas || []).map((marca) => (
+                      <option key={marca.id} value={String(marca.id)}>{marca.nombre}</option>
+                    ))}
+                  </select>
                 </div>
-                <button className="secondary" onClick={() => handleAdjust('entrada')}>Entrada</button>
-                <button className="secondary" onClick={() => handleAdjust('salida')}>Salida</button>
+                <div className="detail-group">
+                  <label>Proveedor</label>
+                  <select
+                    value={createForm.proveedorId}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, proveedorId: event.target.value }))}
+                  >
+                    <option value="0">Sin proveedor</option>
+                    {(catalogs.proveedores || []).map((proveedor) => (
+                      <option key={proveedor.id} value={String(proveedor.id)}>{proveedor.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="detail-group">
+                  <label>Categoría</label>
+                  <select
+                    value={createForm.categoriaId}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, categoriaId: event.target.value }))}
+                  >
+                    <option value="0">Sin categoría</option>
+                    {(catalogs.categorias || []).map((categoria) => (
+                      <option key={categoria.id} value={String(categoria.id)}>{categoria.nombre}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="detail-actions">
-                <button onClick={handleSave}>Guardar cambios</button>
-                <button className="secondary" onClick={handleDelete}>Eliminar artículo</button>
+                <button onClick={handleCreate}>Crear artículo</button>
+                <button className="secondary" onClick={() => setCreateForm(defaultCreateForm(catalogs.config || {}))}>Limpiar</button>
               </div>
-            </>
+            </section>
+          ) : null}
+
+          {!scannerOpen && !createOpen && (
+            <div className="hero-grid">
+              <section className="list">
+                {items.length === 0 ? (
+                  <div className="empty">No hay articulos para mostrar.</div>
+                ) : (
+                  items.map((item) => (
+                    <article
+                      key={item.codigo}
+                      className={`card ${selectedCode === item.codigo ? 'active' : ''}`}
+                      onClick={() => handleSelectArticle(item.codigo)}
+                    >
+                      <div className="card-top">
+                        <div className="card-main">
+                          {item.imagenUrl ? (
+                            <img
+                              className="card-thumb"
+                              src={item.imagenUrl}
+                              alt={item.descripcion}
+                              loading="lazy"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div className="card-thumb placeholder">Sin foto</div>
+                          )}
+                          <div>
+                            <h3>{item.descripcion}</h3>
+                            <code>{item.codigo}</code>
+                          </div>
+                        </div>
+                        <strong className={item.stockCritico ? 'critical' : ''}>{item.stock} u.</strong>
+                      </div>
+                      <div className="metrics">
+                        <div className="metric">
+                          <span>Precio</span>
+                          <strong>{formatCurrency(item.precioFinal)}</strong>
+                        </div>
+                        <div className="metric">
+                          <span>Minimo</span>
+                          <strong>{item.stockMinimo}</strong>
+                        </div>
+                        <div className="metric">
+                          <span>Estado</span>
+                          <strong className={item.stockCritico ? 'critical' : ''}>{item.stockCritico ? 'Critico' : 'OK'}</strong>
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </section>
+
+              <section className="detail">
+                {!selected ? (
+                  <div className="empty">Elegí un artículo para ver su detalle. Tocá el mismo artículo nuevamente para minimizar.</div>
+                ) : (
+                  <>
+                    <div className="card-top">
+                      <div>
+                        <p className="eyebrow">Articulo seleccionado</p>
+                        <h2>{selected.descripcion}</h2>
+                        <code>{selected.codigo}</code>
+                      </div>
+                      <strong className={selected.stockCritico ? 'critical' : ''}>Stock {selected.stock}</strong>
+                    </div>
+
+                    {selected.imagenUrl ? (
+                      <div className="detail-media">
+                        <img
+                          className="detail-image"
+                          src={selected.imagenUrl}
+                          alt={selected.descripcion}
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    ) : null}
+
+                    <div className="detail-group">
+                      <label>Actualizar imagen desde el teléfono</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={(event) => handleSelectedImageChange(event.target.files && event.target.files[0]).catch(() => undefined)}
+                      />
+                      {selectedImageDraft.dataUrl ? (
+                        <div className="detail-media">
+                          <img className="detail-image" src={selectedImageDraft.dataUrl} alt="Vista previa imagen a guardar" />
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="detail-grid">
+                      <div className="detail-group">
+                        <label>Descripción</label>
+                        <input
+                          value={form.descripcion}
+                          onChange={(event) => setForm((prev) => ({ ...prev, descripcion: event.target.value }))}
+                        />
+                      </div>
+                      <div className="detail-group">
+                        <label>Costo</label>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          value={form.costo}
+                          onChange={(event) => setForm((prev) => ({ ...prev, costo: event.target.value }))}
+                        />
+                      </div>
+                      <div className="detail-group">
+                        <label>Ganancia</label>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          value={form.ganancia}
+                          onChange={(event) => setForm((prev) => ({ ...prev, ganancia: event.target.value }))}
+                        />
+                      </div>
+                      <div className="detail-group">
+                        <label>IVA %</label>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          value={form.iva}
+                          onChange={(event) => setForm((prev) => ({ ...prev, iva: event.target.value }))}
+                        />
+                      </div>
+                      <div className="detail-group">
+                        <label>Stock mínimo</label>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          step="1"
+                          value={form.stockMinimo}
+                          onChange={(event) => setForm((prev) => ({ ...prev, stockMinimo: event.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="stock-actions">
+                      <div className="detail-group">
+                        <label>Cantidad</label>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          step="1"
+                          min="1"
+                          value={quantity}
+                          onChange={(event) => setQuantity(event.target.value)}
+                        />
+                      </div>
+                      <button className="secondary" onClick={() => handleAdjust('entrada')}>Entrada</button>
+                      <button className="secondary" onClick={() => handleAdjust('salida')}>Salida</button>
+                    </div>
+
+                    <div className="detail-actions">
+                      <button onClick={handleSave}>Guardar cambios</button>
+                      <button className="secondary" onClick={handleDelete}>Eliminar artículo</button>
+                    </div>
+                  </>
+                )}
+              </section>
+            </div>
           )}
+        </>
+      )}
+
+      {activeSection === 'ranking' && (
+        <section className="detail">
+          <div className="ops-head">
+            <h2>Ranking y faltantes</h2>
+          </div>
+          <div className="ops-grid">
+            <div className="ops-col">
+              <h3>Top stock</h3>
+              {rankingByStock.length === 0 ? <p className="ops-empty">Sin datos todavía.</p> : null}
+              <ul className="ops-list">
+                {rankingByStock.map((item) => (
+                  <li key={`stock-${item.codigo}`}>
+                    <strong>{item.descripcion}</strong>
+                    <span>{item.codigo} · {item.stock} unidades</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="ops-col">
+              <h3>Top precio</h3>
+              {rankingByValue.length === 0 ? <p className="ops-empty">Sin datos todavía.</p> : null}
+              <ul className="ops-list">
+                {rankingByValue.map((item) => (
+                  <li key={`value-${item.codigo}`}>
+                    <strong>{item.descripcion}</strong>
+                    <span>{item.codigo} · {formatCurrency(item.precioFinal)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="ops-col">
+              <h3>Faltantes</h3>
+              {faltantes.length === 0 ? <p className="ops-empty">No hay faltantes críticos.</p> : null}
+              <ul className="ops-list">
+                {faltantes.map((item) => (
+                  <li key={`low-${item.codigo}`}>
+                    <strong>{item.descripcion}</strong>
+                    <span>{item.codigo} · stock {item.stock} / mínimo {item.stockMinimo}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </section>
-      </div>
+      )}
+
+      {activeSection === 'notas' && (
+        <section className="detail">
+          <div className="ops-head">
+            <h2>Mis Notas y Checklists</h2>
+            <button className="secondary" onClick={() => {
+              const titulo = prompt("Título de la nota:");
+              if (titulo === null) return;
+              const tipo = confirm("¿Deseas que sea una lista de tareas (Checklist)?") ? "checklist" : "normal";
+              handleCreateNota(titulo, tipo);
+            }}> Nueva Nota</button>
+          </div>
+          <div className="list">
+            {notas.map(nota => (
+              <div key={nota.id} className="card">
+                <div className="note-card-head">
+                  <h3>{nota.tipo === 'checklist' ? '📋 ' : '📝 '}{nota.titulo}</h3>
+                  <button className="secondary" onClick={() => handleDeleteNota(nota.id)}>Eliminar</button>
+                </div>
+                {nota.tipo === 'checklist' ? (
+                  <ChecklistEditor
+                    contenido={nota.contenido}
+                    onSave={(newContent) => handleUpdateNota(nota.id, newContent)}
+                  />
+                ) : (
+                  <textarea
+                    className="note-textarea"
+                    defaultValue={nota.contenido}
+                    onBlur={(e) => handleUpdateNota(nota.id, e.target.value)}
+                    placeholder="Escribe aqui tu nota..."
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {activeSection === 'sync' && (
+        <>
+          <section className="detail">
+            <div className="ops-head">
+              <h2>Conexión y cache</h2>
+              <div className="ops-actions">
+                <button className="secondary" onClick={() => loadStatus()}>Estado</button>
+                <button className="secondary" onClick={() => loadItems()}>Recargar cache</button>
+                <button className="secondary" onClick={() => flushQueue()}>Reintentar cola</button>
+              </div>
+            </div>
+            <div className="detail-grid">
+              <div className="detail-group">
+                <label>Host o IP de la PC</label>
+                <input
+                  value={pcHost}
+                  onChange={(event) => setPcHost(event.target.value)}
+                  placeholder="Ej: 192.168.0.12 o mercadopg.local"
+                />
+              </div>
+              <div className="detail-actions">
+                <button onClick={connectToPc}>Conectar a PC</button>
+                <button className="secondary" onClick={saveApiBase}>Guardar API</button>
+              </div>
+              <div className="detail-group">
+                <label>Base API actual</label>
+                <input
+                  value={apiBase}
+                  onChange={(event) => setApiBase(normalizeApiInput(event.target.value))}
+                  placeholder="http://ip-pc:3001"
+                />
+              </div>
+              <div className="detail-group">
+                <label>URL backup compartido (archivo)</label>
+                <input
+                  value={backupFolderUrl}
+                  onChange={(event) => setBackupFolderUrl(event.target.value)}
+                  placeholder="https://drive.google.com/file/d/..."
+                />
+              </div>
+              <div className="detail-actions">
+                <button onClick={() => processDriveUrl()}>Importar desde URL</button>
+                <button className="secondary" onClick={() => createPcBackup(false)}>Pedir backup a PC</button>
+              </div>
+            </div>
+          </section>
+
+          <section className="detail">
+            <div className="ops-head">
+              <h2>Google Drive</h2>
+              <div className="ops-actions">
+                <button className="secondary" onClick={saveDriveClientId}>Guardar Client ID</button>
+                {!driveConnected ? <button className="secondary" onClick={driveSignIn}>Conectar</button> : <button className="secondary" onClick={driveSignOut}>Desconectar</button>}
+                <button className="secondary" onClick={driveMakeBackup} disabled={driveBusy}>Subir backup</button>
+              </div>
+            </div>
+            <div className="detail-grid">
+              <div className="detail-group">
+                <label>Client ID Google</label>
+                <input
+                  value={driveClientId}
+                  onChange={(event) => setDriveClientId(event.target.value)}
+                  placeholder="Google OAuth Client ID"
+                />
+              </div>
+              <div className="detail-group">
+                <label>Cuenta conectada</label>
+                <input value={driveEmail || 'Sin conectar'} readOnly />
+              </div>
+              <div className="detail-group checkbox-row">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={autoBackupSync}
+                    onChange={(event) => setAutoBackupSync(event.target.checked)}
+                  />
+                  Sincronizar backup automáticamente
+                </label>
+              </div>
+              <div className="detail-group">
+                <label>Ruta Drive en PC</label>
+                <input
+                  value={driveDir}
+                  onChange={(event) => setDriveDir(event.target.value)}
+                  placeholder="G:\\Mi unidad\\MercadoPG"
+                />
+              </div>
+              <div className="detail-actions">
+                <button onClick={() => saveDriveDir()}>Guardar ruta Drive PC</button>
+                <button className="secondary" onClick={() => loadDriveDir()}>Leer ruta actual</button>
+              </div>
+            </div>
+          </section>
+
+          <section className="detail">
+            <div className="ops-head">
+              <h2>Cola de actualizaciones ({pendingOps.length})</h2>
+            </div>
+            {pendingOps.length === 0 ? <p className="ops-empty">No hay operaciones pendientes.</p> : null}
+            <ul className="ops-list">
+              {pendingOps.slice(0, 30).map((op) => (
+                <li key={op.id}>
+                  <strong>{formatOpLabel(op)}</strong>
+                  <span>{shortDate(op.createdAt)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="detail">
+            <div className="ops-head">
+              <h2>Conflictos ({conflicts.length}) e historial ({history.length})</h2>
+              <div className="ops-actions">
+                <button className="secondary" onClick={clearConflicts}>Limpiar conflictos</button>
+                <button className="secondary" onClick={clearHistory}>Limpiar historial</button>
+              </div>
+            </div>
+            <div className="ops-grid">
+              <div className="ops-col">
+                <h3>Conflictos</h3>
+                {conflicts.length === 0 ? <p className="ops-empty">Sin conflictos.</p> : null}
+                <ul className="ops-list">
+                  {conflicts.slice(0, 30).map((entry, index) => (
+                    <li key={`conflict-${index}`}>
+                      <strong>{entry.summary || 'Conflicto'}</strong>
+                      <span>{entry.reason || 'Sin detalle'} · {shortDate(entry.at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="ops-col">
+                <h3>Historial sync</h3>
+                {history.length === 0 ? <p className="ops-empty">Sin historial todavía.</p> : null}
+                <ul className="ops-list">
+                  {history.slice(0, 40).map((entry, index) => (
+                    <li key={`history-${index}`}>
+                      <strong>{entry.summary || 'Sin resumen'}</strong>
+                      <span>{entry.reason || 'OK'} · {shortDate(entry.at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
-
 createRoot(document.getElementById('root')).render(<App />);

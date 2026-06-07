@@ -130,6 +130,7 @@ class MobileServer {
   }
 
   isMobileWriteLocked(req) {
+    // Permitimos que el teléfono siempre pueda editar para paridad total con la PC
     return false;
   }
 
@@ -243,6 +244,37 @@ class MobileServer {
       const creado = this.services.ArticuloService.obtener(payload.codigo);
       this.notifyDataChanged({ source: 'mobile', action: 'articulo-created', codigo: payload.codigo });
       this.sendJson(res, 201, this.serializeArticulo(creado));
+      return;
+    }
+
+    if (pathname === '/api/notas' && req.method === 'GET') {
+      const notas = this.services.NotaService.listar(); // Asumiendo que existe NotaService
+      this.sendJson(res, 200, notas);
+      return;
+    }
+
+    if (pathname === '/api/notas' && req.method === 'POST') {
+      const payload = await this.readJsonBody(req);
+      const nueva = this.services.NotaService.guardar(payload);
+      this.notifyDataChanged({ source: 'mobile', action: 'nota-created' });
+      this.sendJson(res, 201, nueva);
+      return;
+    }
+
+    if (pathname.startsWith('/api/notas/') && req.method === 'PUT') {
+      const id = pathname.slice('/api/notas/'.length);
+      const payload = await this.readJsonBody(req);
+      const actualizada = this.services.NotaService.actualizar(id, payload);
+      this.notifyDataChanged({ source: 'mobile', action: 'nota-updated' });
+      this.sendJson(res, 200, actualizada);
+      return;
+    }
+
+    if (pathname.startsWith('/api/notas/') && req.method === 'DELETE') {
+      const id = pathname.slice('/api/notas/'.length);
+      this.services.NotaService.eliminar(id);
+      this.notifyDataChanged({ source: 'mobile', action: 'nota-deleted' });
+      this.sendJson(res, 200, { ok: true });
       return;
     }
 
