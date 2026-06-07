@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "9398988e-0b23-4bcf-932e-5b7e10f6d40f"
+      }
+    },
+    "android": {
+      "package": "com.ulises009900.mercadopg"
+    }
+  }
+}

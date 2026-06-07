@@ -1,0 +1,26 @@
+node_modules/
+dist/
+Data/
+*.db
+.DS_Store
+obj/
+bin/
+*.csproj
+*.sln
+*.cs
+*.xaml
+*.xaml.cs
+AssemblyInfo.cs
+Views/
+ViewModels/
+Helpers/
+node_modules/
+dist/
+dist-portable-v4/
+*.exe
+.env
+
+# Android build artifacts and locks
+android/.gradle/
+android/build/
+android/app/build/
