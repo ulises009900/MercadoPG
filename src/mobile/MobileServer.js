@@ -672,7 +672,19 @@ class MobileServer {
       '.avif': 'image/avif'
     };
 
-    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream' });
+    const headers = {
+      'Content-Type': contentTypes[ext] || 'application/octet-stream'
+    };
+
+    const shouldDisableCache = ['.html', '.webmanifest', '.css', '.js'].includes(ext);
+    if (shouldDisableCache) {
+      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, proxy-revalidate';
+      headers.Pragma = 'no-cache';
+      headers.Expires = '0';
+      headers['Surrogate-Control'] = 'no-store';
+    }
+
+    res.writeHead(200, headers);
     fs.createReadStream(filePath).pipe(res);
   }
 }

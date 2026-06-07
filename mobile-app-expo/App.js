@@ -15,6 +15,7 @@ const AUTO_DISCOVERY_CANDIDATES = Array.from(new Set([
 const DISCOVERY_TIMEOUT_MS = 1800;
 
 const STORAGE_PREFIX_ALLOWLIST = ['mercadopg.mobile.', 'mercadopg.expo.'];
+const MAX_SNAPSHOT_VALUE_LENGTH = 120000;
 
 async function requestAndroidMediaPermissions() {
   if (Platform.OS !== 'android') {
@@ -56,7 +57,30 @@ function buildInjectedBridge(snapshot) {
   const safeSnapshot = JSON.stringify(snapshot || {}).replace(/</g, '\\u003c');
   return `
     (function () {
+      // Compatibilidad defensiva: algunos bundles viejos referencian estas
+      // variables globales al abrir Ranking.
+      if (typeof window.rankingByStock === 'undefined') {
+        window.rankingByStock = [];
+      }
+      if (typeof window.rankingByValue === 'undefined') {
+        window.rankingByValue = [];
+      }
+      if (typeof window.faltantes === 'undefined') {
+        window.faltantes = [];
+      }
+
       var snapshot = ${safeSnapshot};
+
+      function post(type, payload) {
+        try {
+          if (!window.ReactNativeWebView || !window.ReactNativeWebView.postMessage) {
+            return;
+          }
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: type, payload: payload || {} }));
+        } catch (error) {
+          // noop
+        }
+      }
 
       function collectStorage() {
         var out = {};
@@ -80,18 +104,29 @@ function buildInjectedBridge(snapshot) {
       }
 
       function postSnapshot() {
-        try {
-          if (!window.ReactNativeWebView || !window.ReactNativeWebView.postMessage) {
-            return;
-          }
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'mercadopg-storage-snapshot',
-            payload: collectStorage()
-          }));
-        } catch (error) {
-          // noop
-        }
+        post('mercadopg-storage-snapshot', collectStorage());
       }
+
+      window.addEventListener('error', function (event) {
+        post('mercadopg-runtime-error', {
+          message: String((event && event.message) || 'Error JavaScript sin detalle'),
+          source: String((event && event.filename) || ''),
+          line: Number((event && event.lineno) || 0),
+          column: Number((event && event.colno) || 0),
+          stack: String((event && event.error && event.error.stack) || '')
+        });
+      });
+
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event && event.reason;
+        post('mercadopg-runtime-error', {
+          message: String((reason && reason.message) || reason || 'Promise rechazada sin detalle'),
+          source: 'unhandledrejection',
+          line: 0,
+          column: 0,
+          stack: String((reason && reason.stack) || '')
+        });
+      });
 
       try {
         if (snapshot && typeof snapshot === 'object') {
@@ -113,7 +148,6 @@ function buildInjectedBridge(snapshot) {
           postSnapshot();
         }
       });
-      setInterval(postSnapshot, 5000);
     })();
     true;
   `;
@@ -351,13 +385,28 @@ export default function App() {
   async function handleWebMessage(event) {
     try {
       const data = parseSnapshot(event?.nativeEvent?.data);
+      if (data.type === 'mercadopg-runtime-error') {
+        const payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+        const base = String(payload.message || 'Error JavaScript sin detalle');
+        const src = String(payload.source || 'origen desconocido');
+        const line = Number(payload.line || 0);
+        const where = line > 0 ? `${src}:${line}` : src;
+        setWebMessage(`Error interno detectado en la app web: ${base} (${where}).`);
+        return;
+      }
+
       if (data.type !== 'mercadopg-storage-snapshot') {
         return;
       }
 
       const payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
       const filtered = Object.fromEntries(
-        Object.entries(payload).filter(([key, value]) => shouldPersistStorageKey(key) && typeof value === 'string')
+        Object.entries(payload).filter(([key, value]) => {
+          if (!shouldPersistStorageKey(key) || typeof value !== 'string') {
+            return false;
+          }
+          return value.length <= MAX_SNAPSHOT_VALUE_LENGTH;
+        })
       );
 
       setStorageSnapshot(filtered);
@@ -400,8 +449,9 @@ export default function App() {
           thirdPartyCookiesEnabled
           mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
           startInLoadingState
-          cacheEnabled={!isNgrokUrl(activeUrl)}
-          cacheMode={isNgrokUrl(activeUrl) ? 'LOAD_NO_CACHE' : 'LOAD_CACHE_ELSE_NETWORK'}
+          cacheEnabled={false}
+          cacheMode="LOAD_NO_CACHE"
+          incognito
           javaScriptEnabled
           domStorageEnabled
           injectedJavaScriptBeforeContentLoaded={injectedBridgeScript}
@@ -434,6 +484,13 @@ export default function App() {
           onError={(event) => {
             const description = event?.nativeEvent?.description || 'sin descripcion';
             setWebMessage(`${buildConnectionHelp(activeUrl, description)} Si ya abriste esta URL antes, se intentará mostrar la última copia en caché.`);
+          }}
+          onContentProcessDidTerminate={() => {
+            setWebMessage('El proceso de la app web se cerró en el teléfono. Reabre MercadoPG o toca "Cambiar URL" y vuelve a entrar.');
+          }}
+          onRenderProcessGone={(event) => {
+            const details = String(event?.nativeEvent?.didCrash ? 'crash' : 'cerrado por sistema');
+            setWebMessage(`El motor de render de la app web se detuvo (${details}). Reintentá abrir MercadoPG.`);
           }}
         />
       </SafeAreaView>

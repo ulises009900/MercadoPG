@@ -5,6 +5,7 @@
   var __getOwnPropNames = Object.getOwnPropertyNames;
   var __getProtoOf = Object.getPrototypeOf;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
   var __commonJS = (cb, mod) => function __require() {
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
   };
@@ -24,6 +25,7 @@
     isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
     mod
   ));
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
   // node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
@@ -53516,6 +53518,46 @@
   );
 
   // src/mobile/app.jsx
+  var MobileErrorBoundary = class extends import_react.default.Component {
+    constructor(props) {
+      super(props);
+      __publicField(this, "handleReload", () => {
+        window.location.reload();
+      });
+      __publicField(this, "handleResetLocal", () => {
+        try {
+          const keys = [
+            "mercadopg.mobile.cache.v1",
+            "mercadopg.mobile.queue.v1",
+            "mercadopg.mobile.catalogs.v1",
+            "mercadopg.mobile.conflicts.v1",
+            "mercadopg.mobile.history.v1",
+            "mercadopg.mobile.image-map.v1",
+            "mercadopg.mobile.notes.v1",
+            "mercadopg.mobile.last-selected-code.v1",
+            "mercadopg.mobile.last-search.v1"
+          ];
+          keys.forEach((key) => localStorage.removeItem(key));
+        } catch {
+        }
+        window.location.reload();
+      });
+      this.state = { hasError: false, error: null };
+    }
+    static getDerivedStateFromError(error) {
+      return { hasError: true, error };
+    }
+    componentDidCatch(error, errorInfo) {
+      console.error("Error en app movil:", error, errorInfo);
+    }
+    render() {
+      var _a2;
+      if (this.state.hasError) {
+        return /* @__PURE__ */ import_react.default.createElement("div", { className: "shell" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "notice error" }, "La app detecto un error inesperado. Cierra y vuelve a abrir."), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Detalle t\xE9cnico"), /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, String(((_a2 = this.state.error) == null ? void 0 : _a2.message) || "Sin detalle")), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", onClick: this.handleReload }, "Reintentar"), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: this.handleResetLocal }, "Reiniciar datos locales"))));
+      }
+      return this.props.children;
+    }
+  };
   var CACHE_KEY = "mercadopg.mobile.cache.v1";
   var QUEUE_KEY = "mercadopg.mobile.queue.v1";
   var CATALOGS_KEY = "mercadopg.mobile.catalogs.v1";
@@ -53534,6 +53576,7 @@
   var LAST_SELECTED_CODE_KEY = "mercadopg.mobile.last-selected-code.v1";
   var LAST_SEARCH_KEY = "mercadopg.mobile.last-search.v1";
   var NOTES_KEY = "mercadopg.mobile.notes.v1";
+  var IS_EMBEDDED_EXPO_WEBVIEW = typeof window !== "undefined" && (Boolean(window.ReactNativeWebView) || /MercadoPGMobile/i.test(String(typeof navigator !== "undefined" && navigator.userAgent || "")));
   function formatCurrency(value) {
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
@@ -53595,6 +53638,28 @@
         return `Baja de nota`;
       default:
         return `Operacion \xB7 ${base}`;
+    }
+  }
+  function buildRankingModel(items) {
+    try {
+      const source = (Array.isArray(items) ? items : []).filter((item) => item && typeof item === "object").map((item) => ({
+        codigo: String(item.codigo || ""),
+        descripcion: String(item.descripcion || "Sin descripcion"),
+        stock: Number(item.stock || 0),
+        stockMinimo: Number(item.stockMinimo || 0),
+        precioFinal: Number(item.precioFinal || 0)
+      }));
+      const rankingStockList = [...source].sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0)).slice(0, 20);
+      const rankingByValue = [...source].sort((a, b) => Number(b.precioFinal || 0) - Number(a.precioFinal || 0)).slice(0, 20);
+      const faltantes = source.filter((item) => Number(item.stock || 0) <= Number(item.stockMinimo || 0)).sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0));
+      return { rankingStockList, rankingByValue, faltantes, error: "" };
+    } catch (error) {
+      return {
+        rankingStockList: [],
+        rankingByValue: [],
+        faltantes: [],
+        error: String((error == null ? void 0 : error.message) || "Error desconocido al preparar ranking.")
+      };
     }
   }
   function defaultCreateForm(config = {}) {
@@ -53812,6 +53877,7 @@
     const [catalogs, setCatalogs] = (0, import_react.useState)(() => readJson(CATALOGS_KEY, { marcas: [], proveedores: [], categorias: [], config: {} }));
     const [createForm, setCreateForm] = (0, import_react.useState)(() => defaultCreateForm(readJson(CATALOGS_KEY, { config: {} }).config || {}));
     const [message, setMessage] = (0, import_react.useState)(null);
+    const [fatalError, setFatalError] = (0, import_react.useState)("");
     const [loading, setLoading] = (0, import_react.useState)(false);
     const [pendingOps, setPendingOps] = (0, import_react.useState)(() => readJson(QUEUE_KEY, []));
     const [pendingCount, setPendingCount] = (0, import_react.useState)(() => pendingOps.length);
@@ -54870,15 +54936,19 @@
     }, [backupFolderUrl, autoBackupSync, driveToken]);
     (0, import_react.useEffect)(() => {
       if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/service-worker.js").then((registration) => {
-          if (requestedVersion) {
-            const lastVersion = localStorage.getItem(CLIENT_VERSION_KEY);
-            if (lastVersion !== requestedVersion) {
-              localStorage.setItem(CLIENT_VERSION_KEY, requestedVersion);
-              registration.update().catch(() => void 0);
+        if (IS_EMBEDDED_EXPO_WEBVIEW) {
+          navigator.serviceWorker.getRegistrations().then((registrations) => Promise.all(registrations.map((registration) => registration.unregister()))).catch(() => void 0);
+        } else {
+          navigator.serviceWorker.register("/service-worker.js").then((registration) => {
+            if (requestedVersion) {
+              const lastVersion = localStorage.getItem(CLIENT_VERSION_KEY);
+              if (lastVersion !== requestedVersion) {
+                localStorage.setItem(CLIENT_VERSION_KEY, requestedVersion);
+                registration.update().catch(() => void 0);
+              }
             }
-          }
-        }).catch(() => void 0);
+          }).catch(() => void 0);
+        }
       }
       const onBeforeInstallPrompt = (event) => {
         event.preventDefault();
@@ -55049,6 +55119,30 @@
       }, 3e4);
       return () => clearInterval(timer);
     }, [status.offline]);
+    (0, import_react.useEffect)(() => {
+      const onGlobalError = (event) => {
+        var _a2;
+        const msg = String(((_a2 = event == null ? void 0 : event.error) == null ? void 0 : _a2.message) || (event == null ? void 0 : event.message) || "Error de ejecuci\xF3n no identificado");
+        console.error("Global runtime error:", (event == null ? void 0 : event.error) || event);
+        setFatalError(msg);
+        setActiveSection("mercado");
+        setMessage({ type: "error", text: `Error interno: ${msg}` });
+      };
+      const onUnhandledRejection = (event) => {
+        const reason = event == null ? void 0 : event.reason;
+        const msg = String((reason == null ? void 0 : reason.message) || reason || "Promesa rechazada sin detalle");
+        console.error("Unhandled rejection:", reason || event);
+        setFatalError(msg);
+        setActiveSection("mercado");
+        setMessage({ type: "error", text: `Error interno: ${msg}` });
+      };
+      window.addEventListener("error", onGlobalError);
+      window.addEventListener("unhandledrejection", onUnhandledRejection);
+      return () => {
+        window.removeEventListener("error", onGlobalError);
+        window.removeEventListener("unhandledrejection", onUnhandledRejection);
+      };
+    }, []);
     (0, import_react.useEffect)(() => {
       const triggerCloseBackup = () => {
         if (status.offline || !navigator.sendBeacon) {
@@ -55376,7 +55470,43 @@
     function clearHistory() {
       persistHistory([]);
     }
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "shell" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "status-bar" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "app-title" }, "MercadoPG"), /* @__PURE__ */ import_react.default.createElement("div", { className: "status-pills" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `pill ${status.offline ? "pill-offline" : "pill-online"}` }, status.offline ? pcHost ? `PC: ${pcHost} \u2717` : "Sin conexi\xF3n" : `PC: ${pcHost || "conectado"} \u2713`), pendingCount > 0 ? /* @__PURE__ */ import_react.default.createElement("span", { className: "pill pill-pending" }, "Pendientes: ", pendingCount) : null)), message ? /* @__PURE__ */ import_react.default.createElement("div", { className: `notice ${message.type}` }, message.text) : null, /* @__PURE__ */ import_react.default.createElement("section", { className: "triple-nav", role: "tablist", "aria-label": "Navegacion principal" }, /* @__PURE__ */ import_react.default.createElement(
+    function resetLocalMobileData() {
+      try {
+        [
+          CACHE_KEY,
+          QUEUE_KEY,
+          CATALOGS_KEY,
+          CONFLICTS_KEY,
+          HISTORY_KEY,
+          IMAGE_MAP_KEY,
+          NOTES_KEY,
+          LAST_SELECTED_CODE_KEY,
+          LAST_SEARCH_KEY
+        ].forEach((key) => localStorage.removeItem(key));
+      } catch {
+      }
+      setItems([]);
+      setNotas([]);
+      setSelected(null);
+      setSelectedCode(null);
+      setFatalError("");
+      setActiveSection("mercado");
+      setMessage({ type: "info", text: "Datos locales reiniciados. Recargando desde la PC..." });
+      loadStatus().then((online) => {
+        if (!online) {
+          return;
+        }
+        loadCatalogs().catch(() => void 0);
+        loadItems().catch(() => void 0);
+        loadNotas().catch(() => void 0);
+      }).catch(() => void 0);
+    }
+    const rankingModel = (0, import_react.useMemo)(() => buildRankingModel(items), [items]);
+    const rankingStockList = Array.isArray(rankingModel == null ? void 0 : rankingModel.rankingStockList) ? rankingModel.rankingStockList : [];
+    const rankingByValue = Array.isArray(rankingModel == null ? void 0 : rankingModel.rankingByValue) ? rankingModel.rankingByValue : [];
+    const faltantes = Array.isArray(rankingModel == null ? void 0 : rankingModel.faltantes) ? rankingModel.faltantes : [];
+    const rankingError = String((rankingModel == null ? void 0 : rankingModel.error) || "");
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "shell" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "status-bar" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "app-title" }, "MercadoPG"), /* @__PURE__ */ import_react.default.createElement("div", { className: "status-pills" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `pill ${status.offline ? "pill-offline" : "pill-online"}` }, status.offline ? pcHost ? `PC: ${pcHost} \u2717` : "Sin conexi\xF3n" : `PC: ${pcHost || "conectado"} \u2713`), pendingCount > 0 ? /* @__PURE__ */ import_react.default.createElement("span", { className: "pill pill-pending" }, "Pendientes: ", pendingCount) : null)), message ? /* @__PURE__ */ import_react.default.createElement("div", { className: `notice ${message.type}` }, message.text) : null, fatalError ? /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Modo Recuperaci\xF3n")), /* @__PURE__ */ import_react.default.createElement("div", { className: "notice error" }, "Se detect\xF3 un error cr\xEDtico: ", fatalError), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", onClick: () => window.location.reload() }, "Reintentar"), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: resetLocalMobileData }, "Reiniciar datos locales"))) : null, /* @__PURE__ */ import_react.default.createElement("section", { className: "triple-nav", role: "tablist", "aria-label": "Navegacion principal" }, /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         type: "button",
@@ -55390,7 +55520,14 @@
       {
         type: "button",
         className: activeSection === "ranking" ? "active" : "",
-        onClick: () => setActiveSection("ranking"),
+        onClick: () => {
+          if (rankingError) {
+            setMessage({ type: "error", text: `Ranking deshabilitado por datos invalidos: ${rankingError}` });
+            setActiveSection("mercado");
+            return;
+          }
+          setActiveSection("ranking");
+        },
         "aria-selected": activeSection === "ranking"
       },
       "Ranking"
@@ -55602,7 +55739,26 @@
         value: quantity,
         onChange: (event) => setQuantity(event.target.value)
       }
-    )), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("entrada") }, "Entrada"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("salida") }, "Salida")), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: handleSave }, "Guardar cambios"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: handleDelete }, "Eliminar art\xEDculo")))))), activeSection === "ranking" && /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Ranking y faltantes")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Top stock"), rankingByStock.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin datos todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, rankingByStock.map((item) => /* @__PURE__ */ import_react.default.createElement("li", { key: `stock-${item.codigo}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo, " \xB7 ", item.stock, " unidades"))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Top precio"), rankingByValue.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin datos todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, rankingByValue.map((item) => /* @__PURE__ */ import_react.default.createElement("li", { key: `value-${item.codigo}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo, " \xB7 ", formatCurrency(item.precioFinal)))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Faltantes"), faltantes.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "No hay faltantes cr\xEDticos.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, faltantes.map((item) => /* @__PURE__ */ import_react.default.createElement("li", { key: `low-${item.codigo}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo, " \xB7 stock ", item.stock, " / m\xEDnimo ", item.stockMinimo))))))), activeSection === "notas" && /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Mis Notas y Checklists"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => {
+    )), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("entrada") }, "Entrada"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("salida") }, "Salida")), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: handleSave }, "Guardar cambios"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: handleDelete }, "Eliminar art\xEDculo")))))), activeSection === "ranking" && /* @__PURE__ */ import_react.default.createElement("section", { className: "detail ranking-panel", style: { background: "#111111", color: "#f5f5f5" } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Ranking y faltantes")), /* @__PURE__ */ import_react.default.createElement(
+      "div",
+      {
+        style: {
+          marginBottom: "10px",
+          padding: "10px",
+          borderRadius: "12px",
+          border: "1px solid rgba(255,255,255,0.25)",
+          background: "#151515",
+          color: "#f5f5f5",
+          fontSize: "14px"
+        }
+      },
+      "Ranking activo \xB7 Stock: ",
+      rankingStockList.length,
+      " \xB7 Precio: ",
+      rankingByValue.length,
+      " \xB7 Faltantes: ",
+      faltantes.length
+    ), rankingError ? /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "notice error" }, "No se pudo cargar ranking: ", rankingError), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", onClick: () => setActiveSection("mercado") }, "Volver a Mercado"))) : null, !rankingError ? /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Top stock"), rankingStockList.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin datos todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, rankingStockList.map((item, index) => /* @__PURE__ */ import_react.default.createElement("li", { key: `stock-${item.codigo || index}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion || "Sin descripcion"), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo || "Sin codigo", " \xB7 ", Number(item.stock || 0), " unidades"))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Top precio"), rankingByValue.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin datos todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, rankingByValue.map((item, index) => /* @__PURE__ */ import_react.default.createElement("li", { key: `value-${item.codigo || index}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion || "Sin descripcion"), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo || "Sin codigo", " \xB7 ", formatCurrency(Number(item.precioFinal || 0))))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Faltantes"), faltantes.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "No hay faltantes cr\xEDticos.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, faltantes.map((item, index) => /* @__PURE__ */ import_react.default.createElement("li", { key: `low-${item.codigo || index}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, item.descripcion || "Sin descripcion"), /* @__PURE__ */ import_react.default.createElement("span", null, item.codigo || "Sin codigo", " \xB7 stock ", Number(item.stock || 0), " / m\xEDnimo ", Number(item.stockMinimo || 0))))))) : null), activeSection === "notas" && /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Mis Notas y Checklists"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => {
       const titulo = prompt("T\xEDtulo de la nota:");
       if (titulo === null) return;
       const tipo = confirm("\xBFDeseas que sea una lista de tareas (Checklist)?") ? "checklist" : "normal";
@@ -55665,7 +55821,9 @@
       }
     )), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => saveDriveDir() }, "Guardar ruta Drive PC"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadDriveDir() }, "Leer ruta actual")))), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Cola de actualizaciones (", pendingOps.length, ")")), pendingOps.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "No hay operaciones pendientes.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, pendingOps.slice(0, 30).map((op) => /* @__PURE__ */ import_react.default.createElement("li", { key: op.id }, /* @__PURE__ */ import_react.default.createElement("strong", null, formatOpLabel(op)), /* @__PURE__ */ import_react.default.createElement("span", null, shortDate(op.createdAt)))))), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Conflictos (", conflicts.length, ") e historial (", history.length, ")"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: clearConflicts }, "Limpiar conflictos"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: clearHistory }, "Limpiar historial"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Conflictos"), conflicts.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin conflictos.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, conflicts.slice(0, 30).map((entry, index) => /* @__PURE__ */ import_react.default.createElement("li", { key: `conflict-${index}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, entry.summary || "Conflicto"), /* @__PURE__ */ import_react.default.createElement("span", null, entry.reason || "Sin detalle", " \xB7 ", shortDate(entry.at)))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-col" }, /* @__PURE__ */ import_react.default.createElement("h3", null, "Historial sync"), history.length === 0 ? /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Sin historial todav\xEDa.") : null, /* @__PURE__ */ import_react.default.createElement("ul", { className: "ops-list" }, history.slice(0, 40).map((entry, index) => /* @__PURE__ */ import_react.default.createElement("li", { key: `history-${index}` }, /* @__PURE__ */ import_react.default.createElement("strong", null, entry.summary || "Sin resumen"), /* @__PURE__ */ import_react.default.createElement("span", null, entry.reason || "OK", " \xB7 ", shortDate(entry.at))))))))));
   }
-  (0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ import_react.default.createElement(App, null));
+  (0, import_client.createRoot)(document.getElementById("root")).render(
+    /* @__PURE__ */ import_react.default.createElement(MobileErrorBoundary, null, /* @__PURE__ */ import_react.default.createElement(App, null))
+  );
 })();
 /*! Bundled license information:
 

@@ -2,6 +2,67 @@ import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, u
 import { createRoot } from 'react-dom/client';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 
+class MobileErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Error en app movil:', error, errorInfo);
+  }
+
+  handleReload = () => {
+    window.location.reload();
+  };
+
+  handleResetLocal = () => {
+    try {
+      const keys = [
+        'mercadopg.mobile.cache.v1',
+        'mercadopg.mobile.queue.v1',
+        'mercadopg.mobile.catalogs.v1',
+        'mercadopg.mobile.conflicts.v1',
+        'mercadopg.mobile.history.v1',
+        'mercadopg.mobile.image-map.v1',
+        'mercadopg.mobile.notes.v1',
+        'mercadopg.mobile.last-selected-code.v1',
+        'mercadopg.mobile.last-search.v1'
+      ];
+      keys.forEach((key) => localStorage.removeItem(key));
+    } catch {
+      // noop
+    }
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="shell">
+          <div className="notice error">
+            La app detecto un error inesperado. Cierra y vuelve a abrir.
+          </div>
+          <section className="detail">
+            <h2>Detalle técnico</h2>
+            <p className="ops-empty">{String(this.state.error?.message || 'Sin detalle')}</p>
+            <div className="detail-actions">
+              <button type="button" onClick={this.handleReload}>Reintentar</button>
+              <button type="button" className="secondary" onClick={this.handleResetLocal}>Reiniciar datos locales</button>
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 const CACHE_KEY = 'mercadopg.mobile.cache.v1';
 const QUEUE_KEY = 'mercadopg.mobile.queue.v1';
 const CATALOGS_KEY = 'mercadopg.mobile.catalogs.v1';
@@ -20,6 +81,10 @@ const IMAGE_MAP_KEY = 'mercadopg.mobile.image-map.v1';
 const LAST_SELECTED_CODE_KEY = 'mercadopg.mobile.last-selected-code.v1';
 const LAST_SEARCH_KEY = 'mercadopg.mobile.last-search.v1';
 const NOTES_KEY = 'mercadopg.mobile.notes.v1';
+const IS_EMBEDDED_EXPO_WEBVIEW = typeof window !== 'undefined' && (
+  Boolean(window.ReactNativeWebView)
+  || /MercadoPGMobile/i.test(String((typeof navigator !== 'undefined' && navigator.userAgent) || ''))
+);
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('es-AR', {
@@ -79,6 +144,41 @@ function formatOpLabel(op) {
     case 'nota-update': return `Edicion de nota · ${op.payload?.titulo || 'Sin titulo'}`;
     case 'nota-delete': return `Baja de nota`;
     default: return `Operacion · ${base}`;
+  }
+}
+
+function buildRankingModel(items) {
+  try {
+    const source = (Array.isArray(items) ? items : [])
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => ({
+        codigo: String(item.codigo || ''),
+        descripcion: String(item.descripcion || 'Sin descripcion'),
+        stock: Number(item.stock || 0),
+        stockMinimo: Number(item.stockMinimo || 0),
+        precioFinal: Number(item.precioFinal || 0)
+      }));
+
+    const rankingStockList = [...source]
+      .sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0))
+      .slice(0, 20);
+
+    const rankingByValue = [...source]
+      .sort((a, b) => Number(b.precioFinal || 0) - Number(a.precioFinal || 0))
+      .slice(0, 20);
+
+    const faltantes = source
+      .filter((item) => Number(item.stock || 0) <= Number(item.stockMinimo || 0))
+      .sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0));
+
+    return { rankingStockList, rankingByValue, faltantes, error: '' };
+  } catch (error) {
+    return {
+      rankingStockList: [],
+      rankingByValue: [],
+      faltantes: [],
+      error: String(error?.message || 'Error desconocido al preparar ranking.')
+    };
   }
 }
 
@@ -326,6 +426,7 @@ function App() {
   const [catalogs, setCatalogs] = useState(() => readJson(CATALOGS_KEY, { marcas: [], proveedores: [], categorias: [], config: {} }));
   const [createForm, setCreateForm] = useState(() => defaultCreateForm(readJson(CATALOGS_KEY, { config: {} }).config || {}));
   const [message, setMessage] = useState(null);
+  const [fatalError, setFatalError] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingOps, setPendingOps] = useState(() => readJson(QUEUE_KEY, []));
   const [pendingCount, setPendingCount] = useState(() => pendingOps.length);
@@ -1564,15 +1665,21 @@ function App() {
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/service-worker.js').then((registration) => {
-        if (requestedVersion) {
-          const lastVersion = localStorage.getItem(CLIENT_VERSION_KEY);
-          if (lastVersion !== requestedVersion) {
-            localStorage.setItem(CLIENT_VERSION_KEY, requestedVersion);
-            registration.update().catch(() => undefined);
+      if (IS_EMBEDDED_EXPO_WEBVIEW) {
+        navigator.serviceWorker.getRegistrations()
+          .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+          .catch(() => undefined);
+      } else {
+        navigator.serviceWorker.register('/service-worker.js').then((registration) => {
+          if (requestedVersion) {
+            const lastVersion = localStorage.getItem(CLIENT_VERSION_KEY);
+            if (lastVersion !== requestedVersion) {
+              localStorage.setItem(CLIENT_VERSION_KEY, requestedVersion);
+              registration.update().catch(() => undefined);
+            }
           }
-        }
-      }).catch(() => undefined);
+        }).catch(() => undefined);
+      }
     }
 
     const onBeforeInstallPrompt = (event) => {
@@ -1773,6 +1880,33 @@ function App() {
     }, 30000);
     return () => clearInterval(timer);
   }, [status.offline]);
+
+  useEffect(() => {
+    const onGlobalError = (event) => {
+      const msg = String(event?.error?.message || event?.message || 'Error de ejecución no identificado');
+      console.error('Global runtime error:', event?.error || event);
+      setFatalError(msg);
+      setActiveSection('mercado');
+      setMessage({ type: 'error', text: `Error interno: ${msg}` });
+    };
+
+    const onUnhandledRejection = (event) => {
+      const reason = event?.reason;
+      const msg = String(reason?.message || reason || 'Promesa rechazada sin detalle');
+      console.error('Unhandled rejection:', reason || event);
+      setFatalError(msg);
+      setActiveSection('mercado');
+      setMessage({ type: 'error', text: `Error interno: ${msg}` });
+    };
+
+    window.addEventListener('error', onGlobalError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+    return () => {
+      window.removeEventListener('error', onGlobalError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+    };
+  }, []);
 
   useEffect(() => {
     const triggerCloseBackup = () => {
@@ -2162,6 +2296,47 @@ function App() {
     persistHistory([]);
   }
 
+  function resetLocalMobileData() {
+    try {
+      [
+        CACHE_KEY,
+        QUEUE_KEY,
+        CATALOGS_KEY,
+        CONFLICTS_KEY,
+        HISTORY_KEY,
+        IMAGE_MAP_KEY,
+        NOTES_KEY,
+        LAST_SELECTED_CODE_KEY,
+        LAST_SEARCH_KEY
+      ].forEach((key) => localStorage.removeItem(key));
+    } catch {
+      // noop
+    }
+
+    setItems([]);
+    setNotas([]);
+    setSelected(null);
+    setSelectedCode(null);
+    setFatalError('');
+    setActiveSection('mercado');
+    setMessage({ type: 'info', text: 'Datos locales reiniciados. Recargando desde la PC...' });
+
+    loadStatus().then((online) => {
+      if (!online) {
+        return;
+      }
+      loadCatalogs().catch(() => undefined);
+      loadItems().catch(() => undefined);
+      loadNotas().catch(() => undefined);
+    }).catch(() => undefined);
+  }
+
+  const rankingModel = useMemo(() => buildRankingModel(items), [items]);
+  const rankingStockList = Array.isArray(rankingModel?.rankingStockList) ? rankingModel.rankingStockList : [];
+  const rankingByValue = Array.isArray(rankingModel?.rankingByValue) ? rankingModel.rankingByValue : [];
+  const faltantes = Array.isArray(rankingModel?.faltantes) ? rankingModel.faltantes : [];
+  const rankingError = String(rankingModel?.error || '');
+
   return (
     <div className="shell">
       <div className="status-bar">
@@ -2178,6 +2353,19 @@ function App() {
 
       {message ? <div className={`notice ${message.type}`}>{message.text}</div> : null}
 
+      {fatalError ? (
+        <section className="detail">
+          <div className="ops-head">
+            <h2>Modo Recuperación</h2>
+          </div>
+          <div className="notice error">Se detectó un error crítico: {fatalError}</div>
+          <div className="detail-actions">
+            <button type="button" onClick={() => window.location.reload()}>Reintentar</button>
+            <button type="button" className="secondary" onClick={resetLocalMobileData}>Reiniciar datos locales</button>
+          </div>
+        </section>
+      ) : null}
+
       <section className="triple-nav" role="tablist" aria-label="Navegacion principal">
         <button
           type="button"
@@ -2190,7 +2378,14 @@ function App() {
         <button
           type="button"
           className={activeSection === 'ranking' ? 'active' : ''}
-          onClick={() => setActiveSection('ranking')}
+          onClick={() => {
+            if (rankingError) {
+              setMessage({ type: 'error', text: `Ranking deshabilitado por datos invalidos: ${rankingError}` });
+              setActiveSection('mercado');
+              return;
+            }
+            setActiveSection('ranking');
+          }}
           aria-selected={activeSection === 'ranking'}
         >
           Ranking
@@ -2553,19 +2748,41 @@ function App() {
       )}
 
       {activeSection === 'ranking' && (
-        <section className="detail">
+        <section className="detail ranking-panel" style={{ background: '#111111', color: '#f5f5f5' }}>
           <div className="ops-head">
             <h2>Ranking y faltantes</h2>
           </div>
+          <div
+            style={{
+              marginBottom: '10px',
+              padding: '10px',
+              borderRadius: '12px',
+              border: '1px solid rgba(255,255,255,0.25)',
+              background: '#151515',
+              color: '#f5f5f5',
+              fontSize: '14px'
+            }}
+          >
+            Ranking activo · Stock: {rankingStockList.length} · Precio: {rankingByValue.length} · Faltantes: {faltantes.length}
+          </div>
+          {rankingError ? (
+            <>
+              <div className="notice error">No se pudo cargar ranking: {rankingError}</div>
+              <div className="detail-actions">
+                <button type="button" onClick={() => setActiveSection('mercado')}>Volver a Mercado</button>
+              </div>
+            </>
+          ) : null}
+          {!rankingError ? (
           <div className="ops-grid">
             <div className="ops-col">
               <h3>Top stock</h3>
-              {rankingByStock.length === 0 ? <p className="ops-empty">Sin datos todavía.</p> : null}
+              {rankingStockList.length === 0 ? <p className="ops-empty">Sin datos todavía.</p> : null}
               <ul className="ops-list">
-                {rankingByStock.map((item) => (
-                  <li key={`stock-${item.codigo}`}>
-                    <strong>{item.descripcion}</strong>
-                    <span>{item.codigo} · {item.stock} unidades</span>
+                {rankingStockList.map((item, index) => (
+                  <li key={`stock-${item.codigo || index}`}>
+                    <strong>{item.descripcion || 'Sin descripcion'}</strong>
+                    <span>{item.codigo || 'Sin codigo'} · {Number(item.stock || 0)} unidades</span>
                   </li>
                 ))}
               </ul>
@@ -2574,10 +2791,10 @@ function App() {
               <h3>Top precio</h3>
               {rankingByValue.length === 0 ? <p className="ops-empty">Sin datos todavía.</p> : null}
               <ul className="ops-list">
-                {rankingByValue.map((item) => (
-                  <li key={`value-${item.codigo}`}>
-                    <strong>{item.descripcion}</strong>
-                    <span>{item.codigo} · {formatCurrency(item.precioFinal)}</span>
+                {rankingByValue.map((item, index) => (
+                  <li key={`value-${item.codigo || index}`}>
+                    <strong>{item.descripcion || 'Sin descripcion'}</strong>
+                    <span>{item.codigo || 'Sin codigo'} · {formatCurrency(Number(item.precioFinal || 0))}</span>
                   </li>
                 ))}
               </ul>
@@ -2586,15 +2803,16 @@ function App() {
               <h3>Faltantes</h3>
               {faltantes.length === 0 ? <p className="ops-empty">No hay faltantes críticos.</p> : null}
               <ul className="ops-list">
-                {faltantes.map((item) => (
-                  <li key={`low-${item.codigo}`}>
-                    <strong>{item.descripcion}</strong>
-                    <span>{item.codigo} · stock {item.stock} / mínimo {item.stockMinimo}</span>
+                {faltantes.map((item, index) => (
+                  <li key={`low-${item.codigo || index}`}>
+                    <strong>{item.descripcion || 'Sin descripcion'}</strong>
+                    <span>{item.codigo || 'Sin codigo'} · stock {Number(item.stock || 0)} / mínimo {Number(item.stockMinimo || 0)}</span>
                   </li>
                 ))}
               </ul>
             </div>
           </div>
+          ) : null}
         </section>
       )}
 
@@ -2784,4 +3002,8 @@ function App() {
     </div>
   );
 }
-createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(
+  <MobileErrorBoundary>
+    <App />
+  </MobileErrorBoundary>
+);
