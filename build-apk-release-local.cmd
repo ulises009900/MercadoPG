@@ -1,11 +1,17 @@
 @echo off
 setlocal
 
-if exist "C:\Program Files\Microsoft\jdk-21.0.10.7-hotspot\bin\java.exe" (
-	set "JAVA_HOME=C:\Program Files\Microsoft\jdk-21.0.10.7-hotspot"
-) else if exist "C:\Program Files\Microsoft\jdk-17.0.18.8-hotspot\bin\java.exe" (
-	set "JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.18.8-hotspot"
-) else (
+for /d %%D in ("C:\Program Files\Microsoft\jdk-21*-hotspot") do (
+	if exist "%%~fD\bin\java.exe" set "JAVA_HOME=%%~fD"
+)
+
+if not defined JAVA_HOME (
+	for /d %%D in ("C:\Program Files\Microsoft\jdk-17*-hotspot") do (
+		if exist "%%~fD\bin\java.exe" set "JAVA_HOME=%%~fD"
+	)
+)
+
+if not defined JAVA_HOME (
 	echo No se encontro un JDK compatible. Instala Microsoft.OpenJDK.21.
 	exit /b 1
 )

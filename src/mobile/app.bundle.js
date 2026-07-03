@@ -54331,7 +54331,7 @@
         return;
       }
       const nextBase = await resolvePcApiBase(host);
-      const cleanHost = host.replace(/^https?:\/\//i, "").replace(/:\d+$/, "");
+      const cleanHost = host.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
       localStorage.setItem(PC_HOST_KEY, cleanHost);
       localStorage.setItem(API_BASE_KEY, nextBase);
       setApiBase(nextBase);
@@ -54392,14 +54392,6 @@
       }
       if (/:[0-9]+$/.test(raw)) {
         return `http://${raw}`;
-      }
-      const ports = [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009, 3010];
-      for (const port of ports) {
-        const candidate = `http://${raw}:${port}`;
-        const ok = await fetchStatusWithTimeout(candidate);
-        if (ok) {
-          return candidate;
-        }
       }
       return `http://${raw}:3001`;
     }
@@ -55777,19 +55769,19 @@
         onBlur: (e) => handleUpdateNota(nota.id, e.target.value),
         placeholder: "Escribe aqui tu nota..."
       }
-    ))))), activeSection === "sync" && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Conexi\xF3n y cache"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadStatus() }, "Estado"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadItems() }, "Recargar cache"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => flushQueue() }, "Reintentar cola"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Host o IP de la PC"), /* @__PURE__ */ import_react.default.createElement(
+    ))))), activeSection === "sync" && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Conexi\xF3n y cache"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadStatus() }, "Estado"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => loadItems() }, "Recargar cache"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => flushQueue() }, "Reintentar cola"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "IP y puerto de la PC"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         value: pcHost,
         onChange: (event) => setPcHost(event.target.value),
-        placeholder: "Ej: 192.168.0.12 o mercadopg.local"
+        placeholder: "Ej: 192.168.0.12:3001"
       }
     )), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: connectToPc }, "Conectar a PC"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: saveApiBase }, "Guardar API")), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Base API actual"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         value: apiBase,
         onChange: (event) => setApiBase(normalizeApiInput(event.target.value)),
-        placeholder: "http://ip-pc:3001"
+        placeholder: "http://192.168.0.12:3001"
       }
     )), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "URL backup compartido (archivo)"), /* @__PURE__ */ import_react.default.createElement(
       "input",

@@ -965,7 +965,7 @@ function App() {
     }
 
     const nextBase = await resolvePcApiBase(host);
-    const cleanHost = host.replace(/^https?:\/\//i, '').replace(/:\d+$/, '');
+    const cleanHost = host.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
     localStorage.setItem(PC_HOST_KEY, cleanHost);
     localStorage.setItem(API_BASE_KEY, nextBase);
     setApiBase(nextBase);
@@ -1036,15 +1036,6 @@ function App() {
 
     if (/:[0-9]+$/.test(raw)) {
       return `http://${raw}`;
-    }
-
-    const ports = [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009, 3010];
-    for (const port of ports) {
-      const candidate = `http://${raw}:${port}`;
-      const ok = await fetchStatusWithTimeout(candidate);
-      if (ok) {
-        return candidate;
-      }
     }
 
     return `http://${raw}:3001`;
@@ -2866,11 +2857,11 @@ function App() {
             </div>
             <div className="detail-grid">
               <div className="detail-group">
-                <label>Host o IP de la PC</label>
+                <label>IP y puerto de la PC</label>
                 <input
                   value={pcHost}
                   onChange={(event) => setPcHost(event.target.value)}
-                  placeholder="Ej: 192.168.0.12 o mercadopg.local"
+                  placeholder="Ej: 192.168.0.12:3001"
                 />
               </div>
               <div className="detail-actions">
@@ -2882,7 +2873,7 @@ function App() {
                 <input
                   value={apiBase}
                   onChange={(event) => setApiBase(normalizeApiInput(event.target.value))}
-                  placeholder="http://ip-pc:3001"
+                  placeholder="http://192.168.0.12:3001"
                 />
               </div>
               <div className="detail-group">

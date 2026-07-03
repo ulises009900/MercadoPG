@@ -7,10 +7,9 @@ import { WebView } from 'react-native-webview';
 
 const URL_STORAGE_KEY = 'mercadopg.expo.mobile-url';
 const STORAGE_SNAPSHOT_KEY = 'mercadopg.expo.storage-snapshot.v1';
-const DEFAULT_URL = process.env.EXPO_PUBLIC_MERCADOPG_URL || 'http://mercadopg.local:3001';
+const DEFAULT_URL = process.env.EXPO_PUBLIC_MERCADOPG_URL || '';
 const AUTO_DISCOVERY_CANDIDATES = Array.from(new Set([
-  process.env.EXPO_PUBLIC_MERCADOPG_URL || '',
-  'http://mercadopg.local:3001'
+  process.env.EXPO_PUBLIC_MERCADOPG_URL || ''
 ].filter(Boolean)));
 const DISCOVERY_TIMEOUT_MS = 1800;
 
@@ -503,7 +502,7 @@ export default function App() {
       <View style={styles.card}>
         <Text style={styles.title}>MercadoPG - Prueba con Expo</Text>
         <Text style={styles.subtitle}>
-          Pegá la URL del servidor móvil. Para ngrok usá la URL HTTPS pública; para red local, la IP de la PC. Si pegás solo la IP, se prueba el puerto 3001.
+          Pegá la IP y el puerto del servidor. Para red local usá algo como 192.168.0.12:3001; si querés ngrok, pegá la URL HTTPS pública.
         </Text>
 
         <Text style={styles.label}>URL del servidor</Text>
@@ -514,7 +513,7 @@ export default function App() {
           autoCorrect={false}
           keyboardType="url"
           style={styles.input}
-          placeholder="https://xxxxx.ngrok-free.app"
+          placeholder="http://192.168.0.12:3001"
           placeholderTextColor="#6f6f6f"
         />
 
