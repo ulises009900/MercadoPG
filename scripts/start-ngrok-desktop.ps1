@@ -1,6 +1,7 @@
 #!/usr/bin/env powershell
 param(
   [string]$NgrokCommand = 'ngrok',
+  [string]$NgrokDomain = '',
   [string]$PortableExePath = '',
   [string]$UnpackedExePath = ''
 )
@@ -11,6 +12,23 @@ function Resolve-NgrokCommand {
   $cmd = Get-Command ngrok -ErrorAction SilentlyContinue
   if ($cmd -and $cmd.Source) { return $cmd.Source }
   return $NgrokCommand
+}
+
+function Get-NgrokArgumentList {
+  param([string]$Domain)
+
+  $effectiveDomain = String($Domain).Trim()
+  if (-not $effectiveDomain) {
+    $effectiveDomain = String($env:MERCADOPG_NGROK_DOMAIN).Trim()
+  }
+
+  $args = @('http')
+  if ($effectiveDomain) {
+    # ngrok reserved domain (paid plan): keeps a stable HTTPS URL.
+    $args += @('--url', $effectiveDomain)
+  }
+  $args += '3001'
+  return $args
 }
 
 function Stop-NgrokProcesses {
@@ -95,7 +113,8 @@ Write-Host "Ejecutable: $appExe"
 
 Stop-NgrokProcesses
 Write-Host 'Iniciando ngrok en puerto 3001...'
-$ngrokProc = Start-Process -FilePath $ngrokCmd -ArgumentList @('http', '3001') -PassThru
+$ngrokArgs = Get-NgrokArgumentList -Domain $NgrokDomain
+$ngrokProc = Start-Process -FilePath $ngrokCmd -ArgumentList $ngrokArgs -PassThru
 
 try {
   $url = Get-NgrokPublicUrl -ProcessId $ngrokProc.Id

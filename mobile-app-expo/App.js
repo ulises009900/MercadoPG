@@ -280,12 +280,6 @@ function canLoadRequest(activeUrl, request) {
     return true;
   }
 
-  // En ngrok dejamos pasar cualquier navegación para no romper el botón de
-  // salida/continuación del aviso intersticial ni redirecciones internas.
-  if (isNgrokUrl(activeUrl)) {
-    return true;
-  }
-
   try {
     const target = new URL(requestUrl);
 
@@ -293,12 +287,9 @@ function canLoadRequest(activeUrl, request) {
       return true;
     }
 
-    if (!/^https?:$/i.test(target.protocol)) {
-      return false;
-    }
-
-    const base = new URL(String(activeUrl || ''));
-    return target.origin === base.origin;
+    // Permitir navegación HTTP/HTTPS completa para evitar falsos bloqueos en
+    // red local cuando el sitio abre popups, redirecciona o usa enlaces externos.
+    return /^https?:$/i.test(target.protocol);
   } catch {
     return true;
   }

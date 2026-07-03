@@ -1,4 +1,9 @@
-param([string]$NgrokCmd = 'ngrok', [string]$AppCmd = 'npm', [string[]]$AppArgs = @('start'))
+param(
+  [string]$NgrokCmd = 'ngrok',
+  [string]$NgrokDomain = '',
+  [string]$AppCmd = 'npm',
+  [string[]]$AppArgs = @('start')
+)
 $ErrorActionPreference = 'Stop'
 
 function Stop-NgrokProcesses {
@@ -14,6 +19,23 @@ function FindNgrok {
   $c = Get-Command ngrok -ErrorAction SilentlyContinue
   if ($c -and $c.Source) { return $c.Source }
   return $NgrokCmd
+}
+
+function GetNgrokArgs {
+  param([string]$Domain)
+
+  $effectiveDomain = String($Domain).Trim()
+  if (-not $effectiveDomain) {
+    $effectiveDomain = String($env:MERCADOPG_NGROK_DOMAIN).Trim()
+  }
+
+  $args = @('http')
+  if ($effectiveDomain) {
+    # ngrok reserved domain (paid plan): keeps a stable HTTPS URL.
+    $args += @('--url', $effectiveDomain)
+  }
+  $args += '3001'
+  return $args
 }
 
 function GetNgrokUrl {
@@ -51,7 +73,8 @@ if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { throw 'ngrok not fo
 Stop-NgrokProcesses
 
 Write-Host "Starting ngrok on port 3001..."
-$p = Start-Process -FilePath $cmd -ArgumentList @('http', '3001') -PassThru
+$ngrokArgs = GetNgrokArgs -Domain $NgrokDomain
+$p = Start-Process -FilePath $cmd -ArgumentList $ngrokArgs -PassThru
 Write-Host "PID: $($p.Id)"
 Write-Host ""
 

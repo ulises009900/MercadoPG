@@ -48,6 +48,23 @@ Este flujo:
 
 Requisito: `ngrok` instalado y autenticado (`ngrok config add-authtoken ...`).
 
+### Tunel fijo HTTPS (URL estable)
+
+Si tienes un dominio reservado en ngrok (plan pago), puedes fijar siempre la misma URL:
+
+```powershell
+$env:MERCADOPG_NGROK_DOMAIN = 'tu-dominio.ngrok.app'
+npm run desktop:ngrok
+```
+
+Tambien funciona con:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-mobile-tunnel.ps1 -NgrokDomain 'tu-dominio.ngrok.app'
+```
+
+Con eso, los scripts lanzan `ngrok http --url tu-dominio.ngrok.app 3001` y exportan `MERCADOPG_PUBLIC_URL` / `EXPO_PUBLIC_MERCADOPG_URL` con la URL HTTPS estable.
+
 ## APK Android (descargable)
 
 ### Generar APK local (Windows)
