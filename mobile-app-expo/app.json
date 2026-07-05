@@ -2,7 +2,7 @@
   "expo": {
     "name": "mobile-app-expo",
     "slug": "mobile-app-expo",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -31,6 +31,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.ulises009900.mobileappexpo",
+      "versionCode": 2,
       "usesCleartextTraffic": true,
       "permissions": [
         "INTERNET",
@@ -56,6 +57,9 @@
     },
     "updates": {
       "url": "https://u.expo.dev/fa336108-d6f7-418f-91fd-4512e5cc31f8"
-    }
+    },
+    "plugins": [
+      "./plugins/withAndroidLanCleartext"
+    ]
   }
 }
