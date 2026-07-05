@@ -438,6 +438,7 @@ function App() {
   const [isInstalled, setIsInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState('');
+  const [imageDownloadProgress, setImageDownloadProgress] = useState({ active: false, current: 0, total: 0, label: '' });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [driveDir, setDriveDir] = useState('');
   const [driveClientId, setDriveClientId] = useState(() => localStorage.getItem(DRIVE_CLIENT_ID_KEY) || '');
@@ -1073,6 +1074,28 @@ function App() {
     setNotas(nextNotas);
   }
 
+  async function handleDeleteNota(notaId) {
+    const current = notas.find((nota) => nota.id === notaId);
+    if (!current) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Eliminar la nota ${current.titulo || 'sin título'}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    persistNotas(notas.filter((nota) => nota.id !== notaId));
+
+    try {
+      await fetchJson(`/api/notas/${notaId}`, { method: 'DELETE' });
+      setMessage({ type: 'success', text: 'Nota eliminada.' });
+    } catch {
+      enqueue({ type: 'nota-delete', notaId });
+      setMessage({ type: 'info', text: 'Nota eliminada en el teléfono. Se borrará en la PC cuando vuelva la conexión.' });
+    }
+  }
+
   function persistConflicts(next) {
     const clipped = next.slice(0, 80);
     conflictsRef.current = clipped;
@@ -1138,6 +1161,7 @@ function App() {
 
     persistCache(normalizedItems);
     if (data.catalogs) persistCatalogs(data.catalogs);
+    if (Array.isArray(data.notas)) persistNotas(data.notas);
     if (data.history) persistHistory(data.history);
     if (backupMarker) localStorage.setItem(DRIVE_LAST_BACKUP_KEY, backupMarker);
 
@@ -1204,16 +1228,60 @@ function App() {
     }
   }
 
-  async function syncSnapshotFromPc() {
-    // Descarga el snapshot completo del PC (articulos + imagenes) y lo cachea offline
+  async function downloadSnapshotFromPc(options = {}) {
+    const { silent = false } = options;
+
+    if (status.offline) {
+      if (!silent) {
+        setMessage({ type: 'info', text: 'La PC no está disponible en este momento.' });
+      }
+      return false;
+    }
+
+    setImageDownloadProgress({ active: true, current: 0, total: 1, label: 'Conectando con la PC...' });
+
     try {
       const snapshot = await fetchJson('/api/backup/snapshot');
-      if (snapshot && Array.isArray(snapshot.articulos)) {
-        applyBackupPayload(snapshot, { silent: true, backupMarker: `pc-snapshot:${snapshot.timestamp || Date.now()}` });
+      const imageEntries = Object.entries(snapshot?.images || {}).filter(([name, value]) => Boolean(name) && typeof value === 'string');
+      const total = Math.max(imageEntries.length, 1);
+      const nextImages = { ...imageMapRef.current };
+
+      imageEntries.forEach(([name, value], index) => {
+        nextImages[name] = value;
+        setImageDownloadProgress({
+          active: true,
+          current: index + 1,
+          total,
+          label: `Descargando imágenes ${index + 1}/${total}`
+        });
+      });
+
+      applyBackupPayload({
+        ...snapshot,
+        images: nextImages
+      }, {
+        silent: true,
+        backupMarker: `pc-snapshot:${snapshot.timestamp || Date.now()}`
+      });
+
+      setImageDownloadProgress({ active: false, current: 0, total: 0, label: '' });
+
+      if (!silent) {
+        setMessage({ type: 'success', text: imageEntries.length > 0 ? `Imágenes descargadas y cacheadas (${imageEntries.length}).` : 'Se actualizó la cache del teléfono.' });
       }
-    } catch {
-      // PC no disponible o endpoint no existe — no pasa nada, usamos cache anterior
+
+      return true;
+    } catch (error) {
+      setImageDownloadProgress({ active: false, current: 0, total: 0, label: '' });
+      if (!silent) {
+        setMessage({ type: 'error', text: `No se pudo descargar desde la PC: ${error.message}` });
+      }
+      return false;
     }
+  }
+
+  async function syncSnapshotFromPc() {
+    return downloadSnapshotFromPc({ silent: true });
   }
 
   async function loadCatalogs() {
@@ -1225,6 +1293,8 @@ function App() {
     } catch {
       setStatus((prev) => ({ ...prev, offline: true }));
       const cachedCatalogs = readJson(CATALOGS_KEY, { config: {} });
+      setCatalogs(cachedCatalogs);
+      setCreateForm((prev) => ({ ...defaultCreateForm(cachedCatalogs.config || {}), ...prev }));
       applyThemeFromConfig(cachedCatalogs.config || {});
     }
   }
@@ -1740,6 +1810,8 @@ function App() {
         setItems(readJson(CACHE_KEY, []));
         setNotas(readJson(NOTES_KEY, []));
         const cachedCatalogs = readJson(CATALOGS_KEY, { config: {} });
+        setCatalogs(cachedCatalogs);
+        setCreateForm((prev) => ({ ...defaultCreateForm(cachedCatalogs.config || {}), ...prev }));
         applyThemeFromConfig(cachedCatalogs.config || {});
         setMessage({ type: 'info', text: 'Sin conexión: mostrando lo último guardado hasta recuperar la red.' });
       }
@@ -2253,15 +2325,23 @@ function App() {
       || items.find((item) => String(item.codigo).toLowerCase().includes(normalized));
 
     if (match) {
+      setCreateOpen(false);
+      setActiveSection('mercado');
       loadOne(match.codigo).catch(() => undefined);
       setMessage({ type: 'success', text: `Codigo detectado: ${code}` });
     } else {
+      setActiveSection('mercado');
       setCreateOpen(true);
       setCreateForm((prev) => ({ ...prev, codigo: code }));
       setMessage({ type: 'info', text: `Codigo ${code} detectado. Puedes crear el articulo.` });
     }
 
     stopScanner();
+  }
+
+  function startCreateScanner() {
+    setCreateOpen(true);
+    startScanner().catch(() => undefined);
   }
 
   function handleSelectArticle(codigo) {
@@ -2343,6 +2423,23 @@ function App() {
       </div>
 
       {message ? <div className={`notice ${message.type}`}>{message.text}</div> : null}
+
+      {imageDownloadProgress.active ? (
+        <section className="detail progress-panel">
+          <div className="ops-head">
+            <h2>{imageDownloadProgress.label || 'Descargando contenido offline'}</h2>
+          </div>
+          <div className="progress-track" aria-label="Progreso de descarga">
+            <div
+              className="progress-fill"
+              style={{ width: `${Math.max(6, Math.min(100, imageDownloadProgress.total > 0 ? (imageDownloadProgress.current / imageDownloadProgress.total) * 100 : 0))}%` }}
+            />
+          </div>
+          <p className="ops-empty">
+            {imageDownloadProgress.current}/{imageDownloadProgress.total}
+          </p>
+        </section>
+      ) : null}
 
       {fatalError ? (
         <section className="detail">
@@ -2460,6 +2557,7 @@ function App() {
                     onChange={(event) => setCreateForm((prev) => ({ ...prev, codigo: event.target.value }))}
                     placeholder="Ej: A-100"
                   />
+                  <button type="button" className="secondary compact-button code-scan-button" onClick={startCreateScanner}>Escanear</button>
                 </div>
                 <div className="detail-group">
                   <label>Descripción</label>
@@ -2617,18 +2715,21 @@ function App() {
                 )}
               </section>
 
-              <section className="detail">
+              <section className={`detail ${selected ? 'detail-sheet' : ''}`}>
                 {!selected ? (
                   <div className="empty">Elegí un artículo para ver su detalle. Tocá el mismo artículo nuevamente para minimizar.</div>
                 ) : (
                   <>
-                    <div className="card-top">
+                    <div className="ops-head detail-sheet-head">
                       <div>
                         <p className="eyebrow">Articulo seleccionado</p>
                         <h2>{selected.descripcion}</h2>
                         <code>{selected.codigo}</code>
                       </div>
-                      <strong className={selected.stockCritico ? 'critical' : ''}>Stock {selected.stock}</strong>
+                      <div className="ops-actions">
+                        <strong className={selected.stockCritico ? 'critical' : ''}>Stock {selected.stock}</strong>
+                        <button type="button" className="secondary" onClick={() => { setSelectedCode(null); setSelected(null); }}>Cerrar</button>
+                      </div>
                     </div>
 
                     {selected.imagenUrl ? (
@@ -2722,8 +2823,8 @@ function App() {
                           onChange={(event) => setQuantity(event.target.value)}
                         />
                       </div>
-                      <button className="secondary" onClick={() => handleAdjust('entrada')}>Entrada</button>
-                      <button className="secondary" onClick={() => handleAdjust('salida')}>Salida</button>
+                      <button type="button" className="secondary" onClick={() => handleAdjust('entrada')}>+ Stock</button>
+                      <button type="button" className="secondary" onClick={() => handleAdjust('salida')}>- Stock</button>
                     </div>
 
                     <div className="detail-actions">
@@ -2889,6 +2990,16 @@ function App() {
                 <button className="secondary" onClick={() => createPcBackup(false)}>Pedir backup a PC</button>
               </div>
             </div>
+          </section>
+
+          <section className="detail">
+            <div className="ops-head">
+              <h2>Descarga offline</h2>
+              <div className="ops-actions">
+                <button type="button" className="secondary" onClick={() => downloadSnapshotFromPc()}>Descargar imágenes</button>
+              </div>
+            </div>
+            <p className="ops-empty">Guarda las imágenes del catálogo en el teléfono para verlas aunque se caiga la conexión.</p>
           </section>
 
           <section className="detail">

@@ -134,6 +134,7 @@ class BackupService {
     const marcas = db.query('SELECT id, nombre FROM marcas ORDER BY nombre ASC');
     const proveedores = db.query('SELECT id, nombre, contacto FROM proveedores ORDER BY nombre ASC');
     const categorias = db.query('SELECT id, nombre FROM categorias ORDER BY nombre ASC');
+    const notas = db.query('SELECT id, titulo, contenido, tipo FROM notas ORDER BY id DESC');
 
     return {
       timestamp: new Date().toISOString(),
@@ -147,6 +148,7 @@ class BackupService {
         config
       },
       images,
+      notas,
       history: []
     };
   }

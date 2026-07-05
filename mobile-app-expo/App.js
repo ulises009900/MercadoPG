@@ -439,11 +439,18 @@ export default function App() {
           thirdPartyCookiesEnabled
           mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
           startInLoadingState
-          cacheEnabled={false}
-          cacheMode="LOAD_NO_CACHE"
-          incognito
+          cacheEnabled
           javaScriptEnabled
           domStorageEnabled
+          onPermissionRequest={(event) => {
+            try {
+              if (event && typeof event.grant === 'function') {
+                event.grant();
+              }
+            } catch {
+              // El WebView pedirá el permiso de forma nativa si este grant falla.
+            }
+          }}
           injectedJavaScriptBeforeContentLoaded={injectedBridgeScript}
           injectedJavaScript={injectedNavigationPatch}
           onMessage={handleWebMessage}

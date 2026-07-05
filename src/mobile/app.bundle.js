@@ -53889,6 +53889,7 @@
     const [isInstalled, setIsInstalled] = (0, import_react.useState)(() => window.matchMedia("(display-mode: standalone)").matches);
     const [scannerOpen, setScannerOpen] = (0, import_react.useState)(false);
     const [scannerError, setScannerError] = (0, import_react.useState)("");
+    const [imageDownloadProgress, setImageDownloadProgress] = (0, import_react.useState)({ active: false, current: 0, total: 0, label: "" });
     const [settingsOpen, setSettingsOpen] = (0, import_react.useState)(false);
     const [driveDir, setDriveDir] = (0, import_react.useState)("");
     const [driveClientId, setDriveClientId] = (0, import_react.useState)(() => localStorage.getItem(DRIVE_CLIENT_ID_KEY) || "");
@@ -54422,6 +54423,24 @@
       writeJson(NOTES_KEY, nextNotas);
       setNotas(nextNotas);
     }
+    async function handleDeleteNota(notaId) {
+      const current = notas.find((nota) => nota.id === notaId);
+      if (!current) {
+        return;
+      }
+      const confirmed = window.confirm(`Eliminar la nota ${current.titulo || "sin t\xEDtulo"}?`);
+      if (!confirmed) {
+        return;
+      }
+      persistNotas(notas.filter((nota) => nota.id !== notaId));
+      try {
+        await fetchJson(`/api/notas/${notaId}`, { method: "DELETE" });
+        setMessage({ type: "success", text: "Nota eliminada." });
+      } catch {
+        enqueue({ type: "nota-delete", notaId });
+        setMessage({ type: "info", text: "Nota eliminada en el tel\xE9fono. Se borrar\xE1 en la PC cuando vuelva la conexi\xF3n." });
+      }
+    }
     function persistConflicts(next) {
       const clipped = next.slice(0, 80);
       conflictsRef.current = clipped;
@@ -54475,6 +54494,7 @@
       });
       persistCache(normalizedItems);
       if (data.catalogs) persistCatalogs(data.catalogs);
+      if (Array.isArray(data.notas)) persistNotas(data.notas);
       if (data.history) persistHistory(data.history);
       if (backupMarker) localStorage.setItem(DRIVE_LAST_BACKUP_KEY, backupMarker);
       if (!silent) {
@@ -54523,14 +54543,51 @@
         return false;
       }
     }
-    async function syncSnapshotFromPc() {
+    async function downloadSnapshotFromPc(options = {}) {
+      const { silent = false } = options;
+      if (status.offline) {
+        if (!silent) {
+          setMessage({ type: "info", text: "La PC no est\xE1 disponible en este momento." });
+        }
+        return false;
+      }
+      setImageDownloadProgress({ active: true, current: 0, total: 1, label: "Conectando con la PC..." });
       try {
         const snapshot = await fetchJson("/api/backup/snapshot");
-        if (snapshot && Array.isArray(snapshot.articulos)) {
-          applyBackupPayload(snapshot, { silent: true, backupMarker: `pc-snapshot:${snapshot.timestamp || Date.now()}` });
+        const imageEntries = Object.entries((snapshot == null ? void 0 : snapshot.images) || {}).filter(([name, value]) => Boolean(name) && typeof value === "string");
+        const total = Math.max(imageEntries.length, 1);
+        const nextImages = { ...imageMapRef.current };
+        imageEntries.forEach(([name, value], index) => {
+          nextImages[name] = value;
+          setImageDownloadProgress({
+            active: true,
+            current: index + 1,
+            total,
+            label: `Descargando im\xE1genes ${index + 1}/${total}`
+          });
+        });
+        applyBackupPayload({
+          ...snapshot,
+          images: nextImages
+        }, {
+          silent: true,
+          backupMarker: `pc-snapshot:${snapshot.timestamp || Date.now()}`
+        });
+        setImageDownloadProgress({ active: false, current: 0, total: 0, label: "" });
+        if (!silent) {
+          setMessage({ type: "success", text: imageEntries.length > 0 ? `Im\xE1genes descargadas y cacheadas (${imageEntries.length}).` : "Se actualiz\xF3 la cache del tel\xE9fono." });
         }
-      } catch {
+        return true;
+      } catch (error) {
+        setImageDownloadProgress({ active: false, current: 0, total: 0, label: "" });
+        if (!silent) {
+          setMessage({ type: "error", text: `No se pudo descargar desde la PC: ${error.message}` });
+        }
+        return false;
       }
+    }
+    async function syncSnapshotFromPc() {
+      return downloadSnapshotFromPc({ silent: true });
     }
     async function loadCatalogs() {
       try {
@@ -54541,6 +54598,8 @@
       } catch {
         setStatus((prev) => ({ ...prev, offline: true }));
         const cachedCatalogs = readJson(CATALOGS_KEY, { config: {} });
+        setCatalogs(cachedCatalogs);
+        setCreateForm((prev) => ({ ...defaultCreateForm(cachedCatalogs.config || {}), ...prev }));
         applyThemeFromConfig(cachedCatalogs.config || {});
       }
     }
@@ -54998,6 +55057,8 @@
           setItems(readJson(CACHE_KEY, []));
           setNotas(readJson(NOTES_KEY, []));
           const cachedCatalogs = readJson(CATALOGS_KEY, { config: {} });
+          setCatalogs(cachedCatalogs);
+          setCreateForm((prev) => ({ ...defaultCreateForm(cachedCatalogs.config || {}), ...prev }));
           applyThemeFromConfig(cachedCatalogs.config || {});
           setMessage({ type: "info", text: "Sin conexi\xF3n: mostrando lo \xFAltimo guardado hasta recuperar la red." });
         }
@@ -55436,14 +55497,21 @@
       const normalized = code.toLowerCase();
       const match = items.find((item) => String(item.codigo).toLowerCase() === normalized) || items.find((item) => String(item.codigo).toLowerCase().includes(normalized));
       if (match) {
+        setCreateOpen(false);
+        setActiveSection("mercado");
         loadOne(match.codigo).catch(() => void 0);
         setMessage({ type: "success", text: `Codigo detectado: ${code}` });
       } else {
+        setActiveSection("mercado");
         setCreateOpen(true);
         setCreateForm((prev) => ({ ...prev, codigo: code }));
         setMessage({ type: "info", text: `Codigo ${code} detectado. Puedes crear el articulo.` });
       }
       stopScanner();
+    }
+    function startCreateScanner() {
+      setCreateOpen(true);
+      startScanner().catch(() => void 0);
     }
     function handleSelectArticle(codigo) {
       if (!codigo) {
@@ -55498,7 +55566,13 @@
     const rankingByValue = Array.isArray(rankingModel == null ? void 0 : rankingModel.rankingByValue) ? rankingModel.rankingByValue : [];
     const faltantes = Array.isArray(rankingModel == null ? void 0 : rankingModel.faltantes) ? rankingModel.faltantes : [];
     const rankingError = String((rankingModel == null ? void 0 : rankingModel.error) || "");
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "shell" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "status-bar" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "app-title" }, "MercadoPG"), /* @__PURE__ */ import_react.default.createElement("div", { className: "status-pills" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `pill ${status.offline ? "pill-offline" : "pill-online"}` }, status.offline ? pcHost ? `PC: ${pcHost} \u2717` : "Sin conexi\xF3n" : `PC: ${pcHost || "conectado"} \u2713`), pendingCount > 0 ? /* @__PURE__ */ import_react.default.createElement("span", { className: "pill pill-pending" }, "Pendientes: ", pendingCount) : null)), message ? /* @__PURE__ */ import_react.default.createElement("div", { className: `notice ${message.type}` }, message.text) : null, fatalError ? /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Modo Recuperaci\xF3n")), /* @__PURE__ */ import_react.default.createElement("div", { className: "notice error" }, "Se detect\xF3 un error cr\xEDtico: ", fatalError), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", onClick: () => window.location.reload() }, "Reintentar"), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: resetLocalMobileData }, "Reiniciar datos locales"))) : null, /* @__PURE__ */ import_react.default.createElement("section", { className: "triple-nav", role: "tablist", "aria-label": "Navegacion principal" }, /* @__PURE__ */ import_react.default.createElement(
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "shell" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "status-bar" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "app-title" }, "MercadoPG"), /* @__PURE__ */ import_react.default.createElement("div", { className: "status-pills" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `pill ${status.offline ? "pill-offline" : "pill-online"}` }, status.offline ? pcHost ? `PC: ${pcHost} \u2717` : "Sin conexi\xF3n" : `PC: ${pcHost || "conectado"} \u2713`), pendingCount > 0 ? /* @__PURE__ */ import_react.default.createElement("span", { className: "pill pill-pending" }, "Pendientes: ", pendingCount) : null)), message ? /* @__PURE__ */ import_react.default.createElement("div", { className: `notice ${message.type}` }, message.text) : null, imageDownloadProgress.active ? /* @__PURE__ */ import_react.default.createElement("section", { className: "detail progress-panel" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, imageDownloadProgress.label || "Descargando contenido offline")), /* @__PURE__ */ import_react.default.createElement("div", { className: "progress-track", "aria-label": "Progreso de descarga" }, /* @__PURE__ */ import_react.default.createElement(
+      "div",
+      {
+        className: "progress-fill",
+        style: { width: `${Math.max(6, Math.min(100, imageDownloadProgress.total > 0 ? imageDownloadProgress.current / imageDownloadProgress.total * 100 : 0))}%` }
+      }
+    )), /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, imageDownloadProgress.current, "/", imageDownloadProgress.total)) : null, fatalError ? /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Modo Recuperaci\xF3n")), /* @__PURE__ */ import_react.default.createElement("div", { className: "notice error" }, "Se detect\xF3 un error cr\xEDtico: ", fatalError), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", onClick: () => window.location.reload() }, "Reintentar"), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: resetLocalMobileData }, "Reiniciar datos locales"))) : null, /* @__PURE__ */ import_react.default.createElement("section", { className: "triple-nav", role: "tablist", "aria-label": "Navegacion principal" }, /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         type: "button",
@@ -55564,7 +55638,7 @@
         onChange: (event) => setCreateForm((prev) => ({ ...prev, codigo: event.target.value })),
         placeholder: "Ej: A-100"
       }
-    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Descripci\xF3n"), /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary compact-button code-scan-button", onClick: startCreateScanner }, "Escanear")), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Descripci\xF3n"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         value: createForm.descripcion,
@@ -55660,7 +55734,10 @@
         }
       ) : /* @__PURE__ */ import_react.default.createElement("div", { className: "card-thumb placeholder" }, "Sin foto"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h3", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("code", null, item.codigo))), /* @__PURE__ */ import_react.default.createElement("strong", { className: item.stockCritico ? "critical" : "" }, item.stock, " u.")),
       /* @__PURE__ */ import_react.default.createElement("div", { className: "metrics" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "metric" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Precio"), /* @__PURE__ */ import_react.default.createElement("strong", null, formatCurrency(item.precioFinal))), /* @__PURE__ */ import_react.default.createElement("div", { className: "metric" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Minimo"), /* @__PURE__ */ import_react.default.createElement("strong", null, item.stockMinimo)), /* @__PURE__ */ import_react.default.createElement("div", { className: "metric" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Estado"), /* @__PURE__ */ import_react.default.createElement("strong", { className: item.stockCritico ? "critical" : "" }, item.stockCritico ? "Critico" : "OK")))
-    ))), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, !selected ? /* @__PURE__ */ import_react.default.createElement("div", { className: "empty" }, "Eleg\xED un art\xEDculo para ver su detalle. Toc\xE1 el mismo art\xEDculo nuevamente para minimizar.") : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "card-top" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("p", { className: "eyebrow" }, "Articulo seleccionado"), /* @__PURE__ */ import_react.default.createElement("h2", null, selected.descripcion), /* @__PURE__ */ import_react.default.createElement("code", null, selected.codigo)), /* @__PURE__ */ import_react.default.createElement("strong", { className: selected.stockCritico ? "critical" : "" }, "Stock ", selected.stock)), selected.imagenUrl ? /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-media" }, /* @__PURE__ */ import_react.default.createElement(
+    ))), /* @__PURE__ */ import_react.default.createElement("section", { className: `detail ${selected ? "detail-sheet" : ""}` }, !selected ? /* @__PURE__ */ import_react.default.createElement("div", { className: "empty" }, "Eleg\xED un art\xEDculo para ver su detalle. Toc\xE1 el mismo art\xEDculo nuevamente para minimizar.") : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head detail-sheet-head" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("p", { className: "eyebrow" }, "Articulo seleccionado"), /* @__PURE__ */ import_react.default.createElement("h2", null, selected.descripcion), /* @__PURE__ */ import_react.default.createElement("code", null, selected.codigo)), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("strong", { className: selected.stockCritico ? "critical" : "" }, "Stock ", selected.stock), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: () => {
+      setSelectedCode(null);
+      setSelected(null);
+    } }, "Cerrar"))), selected.imagenUrl ? /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-media" }, /* @__PURE__ */ import_react.default.createElement(
       "img",
       {
         className: "detail-image",
@@ -55731,7 +55808,7 @@
         value: quantity,
         onChange: (event) => setQuantity(event.target.value)
       }
-    )), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("entrada") }, "Entrada"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => handleAdjust("salida") }, "Salida")), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: handleSave }, "Guardar cambios"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: handleDelete }, "Eliminar art\xEDculo")))))), activeSection === "ranking" && /* @__PURE__ */ import_react.default.createElement("section", { className: "detail ranking-panel", style: { background: "#111111", color: "#f5f5f5" } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Ranking y faltantes")), /* @__PURE__ */ import_react.default.createElement(
+    )), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: () => handleAdjust("entrada") }, "+ Stock"), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: () => handleAdjust("salida") }, "- Stock")), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: handleSave }, "Guardar cambios"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: handleDelete }, "Eliminar art\xEDculo")))))), activeSection === "ranking" && /* @__PURE__ */ import_react.default.createElement("section", { className: "detail ranking-panel", style: { background: "#111111", color: "#f5f5f5" } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Ranking y faltantes")), /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
         style: {
@@ -55790,7 +55867,7 @@
         onChange: (event) => setBackupFolderUrl(event.target.value),
         placeholder: "https://drive.google.com/file/d/..."
       }
-    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => processDriveUrl() }, "Importar desde URL"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => createPcBackup(false) }, "Pedir backup a PC")))), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Google Drive"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: saveDriveClientId }, "Guardar Client ID"), !driveConnected ? /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: driveSignIn }, "Conectar") : /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: driveSignOut }, "Desconectar"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: driveMakeBackup, disabled: driveBusy }, "Subir backup"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Client ID Google"), /* @__PURE__ */ import_react.default.createElement(
+    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => processDriveUrl() }, "Importar desde URL"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: () => createPcBackup(false) }, "Pedir backup a PC")))), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Descarga offline"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: () => downloadSnapshotFromPc() }, "Descargar im\xE1genes"))), /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Guarda las im\xE1genes del cat\xE1logo en el tel\xE9fono para verlas aunque se caiga la conexi\xF3n.")), /* @__PURE__ */ import_react.default.createElement("section", { className: "detail" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head" }, /* @__PURE__ */ import_react.default.createElement("h2", null, "Google Drive"), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: saveDriveClientId }, "Guardar Client ID"), !driveConnected ? /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: driveSignIn }, "Conectar") : /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: driveSignOut }, "Desconectar"), /* @__PURE__ */ import_react.default.createElement("button", { className: "secondary", onClick: driveMakeBackup, disabled: driveBusy }, "Subir backup"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-group" }, /* @__PURE__ */ import_react.default.createElement("label", null, "Client ID Google"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         value: driveClientId,
