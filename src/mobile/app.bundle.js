@@ -54368,6 +54368,17 @@
       }
       return `${base.replace(/\/+$/, "")}${endpoint}`;
     }
+    function normalizeServerItem(item) {
+      const normalized = normalizeItem(item);
+      const imageUrl = String(normalized.imagenUrl || "").trim();
+      if (imageUrl.startsWith("/api/")) {
+        return {
+          ...normalized,
+          imagenUrl: buildApiUrl(imageUrl)
+        };
+      }
+      return normalized;
+    }
     async function fetchStatusWithTimeout(baseUrl, timeoutMs = 1500) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -54607,7 +54618,7 @@
       setLoading(true);
       try {
         const data = await fetchJson(`/api/articulos?q=${encodeURIComponent(query || "")}`);
-        const normalized = (data.items || []).map(normalizeItem);
+        const normalized = (data.items || []).map(normalizeServerItem);
         (0, import_react.startTransition)(() => {
           if (!query) {
             persistCache(normalized);
@@ -54637,7 +54648,7 @@
     async function loadOne(codigo) {
       var _a2, _b, _c, _d, _e, _f, _g, _h;
       try {
-        const data = normalizeItem(await fetchJson(`/api/articulos/${encodeURIComponent(codigo)}`));
+        const data = normalizeServerItem(await fetchJson(`/api/articulos/${encodeURIComponent(codigo)}`));
         setSelectedCode(data.codigo);
         setSelected(data);
         setForm({
@@ -54670,16 +54681,16 @@
       const index = current.findIndex((item) => item.codigo === updated.codigo);
       const next = [...current];
       if (index >= 0) {
-        next[index] = normalizeItem(updated);
+        next[index] = normalizeServerItem(updated);
       } else {
-        next.unshift(normalizeItem(updated));
+        next.unshift(normalizeServerItem(updated));
       }
       persistCache(next);
       if (!deferredSearch) {
         setItems(next);
       }
       if (selectedCode === updated.codigo) {
-        setSelected(normalizeItem(updated));
+        setSelected(normalizeServerItem(updated));
       }
     }
     async function handleSelectedImageChange(file) {
@@ -55422,7 +55433,21 @@
       setInstallPrompt(null);
     }
     async function startScanner() {
+      var _a2;
       setScannerError("");
+      if (IS_EMBEDDED_EXPO_WEBVIEW && ((_a2 = window.ReactNativeWebView) == null ? void 0 : _a2.postMessage)) {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: "mercadopg-open-native-scanner",
+            payload: {}
+          }));
+          setMessage({ type: "info", text: "Abriendo c\xE1mara del tel\xE9fono..." });
+          return;
+        } catch {
+          setScannerError("No se pudo pedir la c\xE1mara nativa al tel\xE9fono.");
+          return;
+        }
+      }
       setScannerOpen(true);
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setScannerError("No hay acceso a camara en este navegador.");
@@ -55513,6 +55538,18 @@
       setCreateOpen(true);
       startScanner().catch(() => void 0);
     }
+    (0, import_react.useEffect)(() => {
+      function handleNativeScannerResult(event) {
+        var _a2;
+        const code = String(((_a2 = event == null ? void 0 : event.detail) == null ? void 0 : _a2.code) || "").trim();
+        if (!code) {
+          return;
+        }
+        handleScannedCode(code);
+      }
+      window.addEventListener("mercadopg-native-scan-result", handleNativeScannerResult);
+      return () => window.removeEventListener("mercadopg-native-scan-result", handleNativeScannerResult);
+    }, [items, selectedCode, createOpen]);
     function handleSelectArticle(codigo) {
       if (!codigo) {
         return;

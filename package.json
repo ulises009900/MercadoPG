@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build:mobile": "esbuild src/mobile/app.jsx --bundle --format=iife --platform=browser --target=es2019 --outfile=src/mobile/app.bundle.js",
+    "build:mobile": "esbuild src/mobile/app.jsx --bundle --format=iife --platform=browser --target=es2019 --outfile=src/mobile/app.bundle.js && node scripts/generate-expo-offline-shell.js",
     "watch:mobile": "esbuild src/mobile/app.jsx --bundle --format=iife --platform=browser --target=es2019 --outfile=src/mobile/app.bundle.js --watch",
     "mobile:expo:start": "cd mobile-app-expo && npm run start",
     "mobile:tunnel:start": "powershell -NoProfile -ExecutionPolicy Bypass -File start-ngrok-app.ps1",

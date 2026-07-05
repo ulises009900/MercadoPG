@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PermissionsAndroid, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import { OFFLINE_WEB_APP_HTML } from './offline-shell.generated';
 
 const URL_STORAGE_KEY = 'mercadopg.expo.mobile-url';
 const STORAGE_SNAPSHOT_KEY = 'mercadopg.expo.storage-snapshot.v1';
@@ -15,6 +17,8 @@ const DISCOVERY_TIMEOUT_MS = 1800;
 
 const STORAGE_PREFIX_ALLOWLIST = ['mercadopg.mobile.', 'mercadopg.expo.'];
 const MAX_SNAPSHOT_VALUE_LENGTH = 120000;
+const MOBILE_API_BASE_KEY = 'mercadopg.mobile.api-base';
+const MOBILE_PC_HOST_KEY = 'mercadopg.mobile.pc-host';
 
 async function requestAndroidMediaPermissions() {
   if (Platform.OS !== 'android') {
@@ -50,6 +54,27 @@ function parseSnapshot(raw) {
   } catch {
     return {};
   }
+}
+
+function buildSnapshotWithConnection(snapshot, activeUrl) {
+  const normalized = normalizeUrl(activeUrl || '');
+  const nextSnapshot = { ...(snapshot || {}) };
+
+  if (!normalized) {
+    return nextSnapshot;
+  }
+
+  nextSnapshot[MOBILE_API_BASE_KEY] = normalized;
+
+  try {
+    const parsed = new URL(normalized);
+    const host = parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname;
+    nextSnapshot[MOBILE_PC_HOST_KEY] = host;
+  } catch {
+    // noop
+  }
+
+  return nextSnapshot;
 }
 
 function buildInjectedBridge(snapshot) {
@@ -316,6 +341,10 @@ export default function App() {
   const [storageSnapshot, setStorageSnapshot] = useState({});
   const [loadingSavedUrl, setLoadingSavedUrl] = useState(true);
   const [webMessage, setWebMessage] = useState('');
+  const [nativeScannerOpen, setNativeScannerOpen] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const webViewRef = useRef(null);
+  const nativeScannerLockRef = useRef(false);
 
   useEffect(() => {
     async function hydrateUrl() {
@@ -325,10 +354,10 @@ export default function App() {
           AsyncStorage.getItem(STORAGE_SNAPSHOT_KEY)
         ]);
 
-        const snapshot = parseSnapshot(snapshotRaw);
+        const normalizedSaved = normalizeUrl(saved || '');
+        const snapshot = buildSnapshotWithConnection(parseSnapshot(snapshotRaw), normalizedSaved);
         setStorageSnapshot(snapshot);
 
-        const normalizedSaved = normalizeUrl(saved || '');
         if (normalizedSaved) {
           setInputUrl(normalizedSaved);
           setActiveUrl(normalizedSaved);
@@ -337,9 +366,12 @@ export default function App() {
 
         const discovered = await discoverServerUrl(AUTO_DISCOVERY_CANDIDATES);
         if (discovered) {
+          const discoveredSnapshot = buildSnapshotWithConnection(snapshot, discovered);
           setInputUrl(discovered);
           setActiveUrl(discovered);
+          setStorageSnapshot(discoveredSnapshot);
           await AsyncStorage.setItem(URL_STORAGE_KEY, discovered);
+          await AsyncStorage.setItem(STORAGE_SNAPSHOT_KEY, JSON.stringify(discoveredSnapshot));
           return;
         }
 
@@ -356,6 +388,10 @@ export default function App() {
   const canOpen = useMemo(() => Boolean(normalizeUrl(inputUrl)), [inputUrl]);
   const injectedBridgeScript = useMemo(() => buildInjectedBridge(storageSnapshot), [storageSnapshot]);
   const injectedNavigationPatch = useMemo(() => buildInjectedNavigationPatch(), []);
+  const webViewSource = useMemo(() => ({
+    html: OFFLINE_WEB_APP_HTML,
+    baseUrl: activeUrl || 'https://mercadopg.offline.local'
+  }), [activeUrl]);
 
   useEffect(() => {
     requestAndroidMediaPermissions();
@@ -367,14 +403,70 @@ export default function App() {
       return;
     }
 
+    const nextSnapshot = buildSnapshotWithConnection(storageSnapshot, next);
     await AsyncStorage.setItem(URL_STORAGE_KEY, next);
+    await AsyncStorage.setItem(STORAGE_SNAPSHOT_KEY, JSON.stringify(nextSnapshot));
+    setStorageSnapshot(nextSnapshot);
     setInputUrl(next);
     setActiveUrl(next);
+  }
+
+  function emitNativeScanResult(code) {
+    const cleanCode = String(code || '').trim();
+    if (!cleanCode || !webViewRef.current) {
+      return;
+    }
+
+    const payload = JSON.stringify(cleanCode);
+    webViewRef.current.injectJavaScript(`
+      window.dispatchEvent(new CustomEvent('mercadopg-native-scan-result', { detail: { code: ${payload} } }));
+      true;
+    `);
+  }
+
+  async function openNativeScanner() {
+    try {
+      const permission = cameraPermission?.granted
+        ? cameraPermission
+        : await requestCameraPermission();
+
+      if (!permission?.granted) {
+        setWebMessage('La cámara fue denegada. Actívala en permisos de la app para poder escanear.');
+        return;
+      }
+
+      nativeScannerLockRef.current = false;
+      setWebMessage('');
+      setNativeScannerOpen(true);
+    } catch (error) {
+      setWebMessage(`No se pudo abrir la cámara nativa: ${String(error?.message || error || 'sin detalle')}`);
+    }
+  }
+
+  function closeNativeScanner() {
+    nativeScannerLockRef.current = false;
+    setNativeScannerOpen(false);
+  }
+
+  function handleNativeBarcodeScanned(event) {
+    const code = String(event?.data || '').trim();
+    if (!code || nativeScannerLockRef.current) {
+      return;
+    }
+
+    nativeScannerLockRef.current = true;
+    setNativeScannerOpen(false);
+    emitNativeScanResult(code);
   }
 
   async function handleWebMessage(event) {
     try {
       const data = parseSnapshot(event?.nativeEvent?.data);
+      if (data.type === 'mercadopg-open-native-scanner') {
+        await openNativeScanner();
+        return;
+      }
+
       if (data.type === 'mercadopg-runtime-error') {
         const payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
         const base = String(payload.message || 'Error JavaScript sin detalle');
@@ -399,8 +491,9 @@ export default function App() {
         })
       );
 
-      setStorageSnapshot(filtered);
-      await AsyncStorage.setItem(STORAGE_SNAPSHOT_KEY, JSON.stringify(filtered));
+      const nextSnapshot = buildSnapshotWithConnection(filtered, activeUrl);
+      setStorageSnapshot(nextSnapshot);
+      await AsyncStorage.setItem(STORAGE_SNAPSHOT_KEY, JSON.stringify(nextSnapshot));
     } catch {
       // Ignoramos mensajes inválidos para no romper la navegación.
     }
@@ -427,10 +520,8 @@ export default function App() {
         </View>
         {webMessage ? <Text style={styles.webNotice}>{webMessage}</Text> : null}
         <WebView
-          source={{
-            uri: activeUrl,
-            headers: isNgrokUrl(activeUrl) ? { 'ngrok-skip-browser-warning': 'true' } : undefined
-          }}
+          ref={webViewRef}
+          source={webViewSource}
           originWhitelist={['http://*', 'https://*', 'about:*', 'data:*']}
           userAgent="MercadoPGMobile/1.0"
           javaScriptCanOpenWindowsAutomatically
@@ -490,6 +581,27 @@ export default function App() {
             setWebMessage(`El motor de render de la app web se detuvo (${details}). Reintentá abrir MercadoPG.`);
           }}
         />
+        {nativeScannerOpen ? (
+          <View style={styles.nativeScannerOverlay}>
+            <View style={styles.nativeScannerHeader}>
+              <Text style={styles.nativeScannerTitle}>Escanear código</Text>
+              <TouchableOpacity style={styles.nativeScannerClose} onPress={closeNativeScanner}>
+                <Text style={styles.nativeScannerCloseText}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.nativeScannerHint}>Apuntá la cámara al código de barras.</Text>
+            <View style={styles.nativeScannerFrame}>
+              <CameraView
+                style={styles.nativeScannerCamera}
+                facing="back"
+                barcodeScannerSettings={{
+                  barcodeTypes: ['code128', 'ean13', 'ean8', 'upc_a', 'upc_e', 'code39', 'itf14']
+                }}
+                onBarcodeScanned={handleNativeBarcodeScanned}
+              />
+            </View>
+          </View>
+        ) : null}
       </SafeAreaView>
     );
   }
@@ -644,5 +756,53 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#ffffff',
     fontWeight: '800'
+  },
+  nativeScannerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.92)',
+    paddingTop: 18,
+    paddingHorizontal: 14,
+    paddingBottom: 18,
+    justifyContent: 'flex-start'
+  },
+  nativeScannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12
+  },
+  nativeScannerTitle: {
+    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: '800'
+  },
+  nativeScannerClose: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 20
+  },
+  nativeScannerCloseText: {
+    color: '#111111',
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  nativeScannerHint: {
+    color: '#f0f0f0',
+    fontSize: 14,
+    marginTop: 12,
+    marginBottom: 14
+  },
+  nativeScannerFrame: {
+    flex: 1,
+    overflow: 'hidden',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+    backgroundColor: '#000000'
+  },
+  nativeScannerCamera: {
+    flex: 1
   }
 });

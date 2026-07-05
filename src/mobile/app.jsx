@@ -1008,6 +1008,20 @@ function App() {
     return `${base.replace(/\/+$/, '')}${endpoint}`;
   }
 
+  function normalizeServerItem(item) {
+    const normalized = normalizeItem(item);
+    const imageUrl = String(normalized.imagenUrl || '').trim();
+
+    if (imageUrl.startsWith('/api/')) {
+      return {
+        ...normalized,
+        imagenUrl: buildApiUrl(imageUrl)
+      };
+    }
+
+    return normalized;
+  }
+
   async function fetchStatusWithTimeout(baseUrl, timeoutMs = 1500) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -1303,7 +1317,7 @@ function App() {
     setLoading(true);
     try {
       const data = await fetchJson(`/api/articulos?q=${encodeURIComponent(query || '')}`);
-      const normalized = (data.items || []).map(normalizeItem);
+      const normalized = (data.items || []).map(normalizeServerItem);
       startTransition(() => {
         if (!query) {
           persistCache(normalized);
@@ -1333,7 +1347,7 @@ function App() {
 
   async function loadOne(codigo) {
     try {
-      const data = normalizeItem(await fetchJson(`/api/articulos/${encodeURIComponent(codigo)}`));
+      const data = normalizeServerItem(await fetchJson(`/api/articulos/${encodeURIComponent(codigo)}`));
       setSelectedCode(data.codigo);
       setSelected(data);
       setForm({
@@ -1367,16 +1381,16 @@ function App() {
     const index = current.findIndex((item) => item.codigo === updated.codigo);
     const next = [...current];
     if (index >= 0) {
-      next[index] = normalizeItem(updated);
+      next[index] = normalizeServerItem(updated);
     } else {
-      next.unshift(normalizeItem(updated));
+      next.unshift(normalizeServerItem(updated));
     }
     persistCache(next);
     if (!deferredSearch) {
       setItems(next);
     }
     if (selectedCode === updated.codigo) {
-      setSelected(normalizeItem(updated));
+      setSelected(normalizeServerItem(updated));
     }
   }
 
@@ -2232,6 +2246,21 @@ function App() {
 
   async function startScanner() {
     setScannerError('');
+
+    if (IS_EMBEDDED_EXPO_WEBVIEW && window.ReactNativeWebView?.postMessage) {
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'mercadopg-open-native-scanner',
+          payload: {}
+        }));
+        setMessage({ type: 'info', text: 'Abriendo cámara del teléfono...' });
+        return;
+      } catch {
+        setScannerError('No se pudo pedir la cámara nativa al teléfono.');
+        return;
+      }
+    }
+
     setScannerOpen(true);
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -2343,6 +2372,19 @@ function App() {
     setCreateOpen(true);
     startScanner().catch(() => undefined);
   }
+
+  useEffect(() => {
+    function handleNativeScannerResult(event) {
+      const code = String(event?.detail?.code || '').trim();
+      if (!code) {
+        return;
+      }
+      handleScannedCode(code);
+    }
+
+    window.addEventListener('mercadopg-native-scan-result', handleNativeScannerResult);
+    return () => window.removeEventListener('mercadopg-native-scan-result', handleNativeScannerResult);
+  }, [items, selectedCode, createOpen]);
 
   function handleSelectArticle(codigo) {
     if (!codigo) {
