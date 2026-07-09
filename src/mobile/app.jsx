@@ -96,7 +96,7 @@ function formatCurrency(value) {
 
 function readJson(key, fallback) {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(key) ?? sessionStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
@@ -104,7 +104,18 @@ function readJson(key, fallback) {
 }
 
 function writeJson(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
+  const str = JSON.stringify(value);
+  try {
+    localStorage.setItem(key, str);
+    return;
+  } catch {
+    // QuotaExceededError: intento sessionStorage como fallback
+  }
+  try {
+    sessionStorage.setItem(key, str);
+  } catch {
+    // Sin almacenamiento disponible
+  }
 }
 
 function nextId() {
@@ -461,6 +472,7 @@ function App() {
   const scanIntervalRef = useRef(null);
   const barcodeDetectorRef = useRef(null);
   const zxingReaderRef = useRef(null);
+  const lastOfflineBackupSyncRef = useRef(0);
   const backupAutoPasteRef = useRef('');
 
   async function loadDriveDir() {
@@ -601,7 +613,7 @@ function App() {
   }
 
   function parseBackupPayloadText(text) {
-    const cleaned = text.trim();
+    const cleaned = String(text || '').trim().replace(/^\)\]\}'\s*/, '');
     if (!cleaned) {
       throw new Error('El archivo descargado está vacío.');
     }
@@ -802,7 +814,11 @@ function App() {
 
     const info = extractDriveResource(url);
     if (!info) {
-      setMessage({ type: 'error', text: 'Ingresá una URL de carpeta o archivo de Drive válida.' });
+      if (/^https?:\/\//i.test(url)) {
+        await loadBackupFromUrl(url, { backupMarker: `url:${url}` });
+        return;
+      }
+      setMessage({ type: 'error', text: 'Ingresá una URL de carpeta/archivo de Drive o un enlace directo a backup JSON.' });
       return;
     }
 
@@ -811,10 +827,18 @@ function App() {
       return;
     }
 
-    // Link de CARPETA: no se puede listar sin OAuth. Guiar al usuario.
+    if (driveToken) {
+      const latest = await resolveLatestBackupFromFolder(info.id);
+      if (latest?.id) {
+        await loadDriveBackupFile(latest.id, { backupMarker: `folder:${info.id}:${latest.id}:${latest.modifiedTime || ''}` });
+        return;
+      }
+    }
+
+    // Link de CARPETA sin OAuth activo: guiar al usuario.
     setMessage({
       type: 'info',
-      text: '⚠️ Pegaste un link de carpeta. Para que funcione sin abrir Drive: abrí esa carpeta en el navegador de la PC, buscá el archivo "backup_latest.json", hacé clic derecho → Compartir → Copiar enlace, y pegá ese link directo aquí.'
+      text: '⚠️ Pegaste un link de carpeta. Conectá Google Drive para leerla automáticamente, o pegá el enlace directo del archivo "backup_latest.json".'
     });
   }
 
@@ -858,12 +882,48 @@ function App() {
       const data = normalizeBackupData(rawData);
 
       if (data && Array.isArray(data.articulos)) {
-        applyBackupPayload(data, { silent, backupMarker });
+        const marker = backupMarker
+          ? `${backupMarker}:${String(data.timestamp || '')}`
+          : `file:${fileId}:${String(data.timestamp || '')}`;
+        applyBackupPayload(data, { silent, backupMarker: marker });
         if (closeSettings) {
           setSettingsOpen(false);
         }
       } else {
         throw new Error('El archivo descargado no tiene un formato de backup compatible de MercadoPG.');
+      }
+    } catch (err) {
+      if (!silent) {
+        setMessage({ type: 'error', text: `Error al cargar backup: ${err.message}` });
+      }
+    } finally {
+      setDriveBusy(false);
+    }
+  }
+
+  async function loadBackupFromUrl(url, options = {}) {
+    const { silent = false, closeSettings = true, backupMarker = '' } = options;
+    setDriveBusy(true);
+    try {
+      const response = await fetch(String(url || '').trim(), { redirect: 'follow', cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`No se pudo descargar el backup (HTTP ${response.status}).`);
+      }
+
+      const text = await response.text();
+      const rawData = parseBackupPayloadText(text);
+      const data = normalizeBackupData(rawData);
+
+      if (data && Array.isArray(data.articulos)) {
+        const marker = backupMarker
+          ? `${backupMarker}:${String(data.timestamp || '')}`
+          : `url:${String(url || '').trim()}:${String(data.timestamp || '')}`;
+        applyBackupPayload(data, { silent, backupMarker: marker });
+        if (closeSettings) {
+          setSettingsOpen(false);
+        }
+      } else {
+        throw new Error('El enlace descargó contenido, pero no es un backup compatible de MercadoPG.');
       }
     } catch (err) {
       if (!silent) {
@@ -886,20 +946,29 @@ function App() {
 
     const info = extractDriveResource(url);
     if (!info) {
+      if (/^https?:\/\//i.test(url)) {
+        await loadBackupFromUrl(url, { silent: true, closeSettings: false, backupMarker: `url:${url}` });
+      }
       return;
     }
 
     try {
       if (info.type === 'file') {
         const marker = `file:${info.id}`;
-        if (localStorage.getItem(DRIVE_LAST_BACKUP_KEY) === marker) {
-          return;
-        }
         await loadDriveBackupFile(info.id, { silent: true, closeSettings: false, backupMarker: marker });
         return;
       }
 
-      // Carpeta: no se puede sincronizar sin OAuth. Ignorar silenciosamente.
+      if (driveToken) {
+        const latest = await resolveLatestBackupFromFolder(info.id);
+        if (latest?.id) {
+          const marker = `folder:${info.id}:${latest.id}:${latest.modifiedTime || ''}`;
+          if (localStorage.getItem(DRIVE_LAST_BACKUP_KEY) === marker) {
+            return;
+          }
+          await loadDriveBackupFile(latest.id, { silent: true, closeSettings: false, backupMarker: marker });
+        }
+      }
     } catch {
       // Modo silencioso.
     }
@@ -1011,6 +1080,14 @@ function App() {
   function normalizeServerItem(item) {
     const normalized = normalizeItem(item);
     const imageUrl = String(normalized.imagenUrl || '').trim();
+
+    // Resolver imagen desde imageMapRef (data URIs guardados offline)
+    if (imageUrl && !imageUrl.startsWith('data:') && !isAbsoluteUrl(imageUrl)) {
+      const fileName = extractImageName(imageUrl);
+      if (fileName && imageMapRef.current[fileName]) {
+        return { ...normalized, imagenUrl: imageMapRef.current[fileName] };
+      }
+    }
 
     if (imageUrl.startsWith('/api/')) {
       return {
@@ -1167,10 +1244,17 @@ function App() {
     const normalizedItems = (data.articulos || []).map((item) => {
       const normalized = normalizeItem(item);
       const sourceImage = item.imagenUrl || item.imagenName || '';
-      return {
-        ...normalized,
-        imagenUrl: resolveBackupImageUrl(sourceImage, backupImages)
-      };
+      const resolvedUrl = resolveBackupImageUrl(sourceImage, backupImages);
+      // No embeber data URIs en el cache de articulos (evita QuotaExceededError).
+      // Las imagenes ya quedan en IMAGE_MAP_KEY y se resuelven en tiempo de render.
+      let imagenUrl;
+      if (resolvedUrl && resolvedUrl.startsWith('data:')) {
+        const fn = extractImageName(sourceImage);
+        imagenUrl = fn ? `/api/images/${encodeURIComponent(fn)}` : null;
+      } else {
+        imagenUrl = resolvedUrl || null;
+      }
+      return { ...normalized, imagenUrl };
     });
 
     persistCache(normalizedItems);
@@ -1238,6 +1322,7 @@ function App() {
       return true;
     } catch {
       setStatus((prev) => ({ ...prev, offline: true }));
+      syncDriveFallbackOnDisconnect();
       return false;
     }
   }
@@ -1298,6 +1383,16 @@ function App() {
     return downloadSnapshotFromPc({ silent: true });
   }
 
+  function syncDriveFallbackOnDisconnect() {
+    const now = Date.now();
+    if (now - lastOfflineBackupSyncRef.current < 10000) {
+      return;
+    }
+
+    lastOfflineBackupSyncRef.current = now;
+    syncLatestBackupSilently().catch(() => undefined);
+  }
+
   async function loadCatalogs() {
     try {
       const data = await fetchJson('/api/catalogos');
@@ -1306,6 +1401,7 @@ function App() {
       applyThemeFromConfig(data.config);
     } catch {
       setStatus((prev) => ({ ...prev, offline: true }));
+      syncDriveFallbackOnDisconnect();
       const cachedCatalogs = readJson(CATALOGS_KEY, { config: {} });
       setCatalogs(cachedCatalogs);
       setCreateForm((prev) => ({ ...defaultCreateForm(cachedCatalogs.config || {}), ...prev }));
@@ -1325,7 +1421,7 @@ function App() {
           setItems(normalized);
         }
         if (selectedCode) {
-          const baseItems = query ? readJson(CACHE_KEY, []).map(normalizeItem) : normalized;
+          const baseItems = query ? readJson(CACHE_KEY, []).map(normalizeServerItem) : normalized;
           const nextSelected = baseItems.find((item) => item.codigo === selectedCode) || normalized.find((item) => item.codigo === selectedCode) || null;
           setSelected(nextSelected);
         }
@@ -1337,9 +1433,10 @@ function App() {
         if (!query) return true;
         const needle = query.toLowerCase();
         return item.codigo.toLowerCase().includes(needle) || item.descripcion.toLowerCase().includes(needle);
-      });
+      }).map(normalizeServerItem);
       setItems(filtered);
       setStatus((prev) => ({ ...prev, offline: true }));
+      syncDriveFallbackOnDisconnect();
     } finally {
       setLoading(false);
     }
@@ -1360,7 +1457,8 @@ function App() {
       setStatus((prev) => ({ ...prev, offline: false }));
     } catch {
       const cached = readJson(CACHE_KEY, []);
-      const data = cached.find((item) => item.codigo === codigo) || null;
+      const rawCached = cached.find((item) => item.codigo === codigo) || null;
+      const data = rawCached ? normalizeServerItem(rawCached) : null;
       if (data) {
         setSelectedCode(data.codigo);
         setSelected(data);
@@ -2357,7 +2455,10 @@ function App() {
       setCreateOpen(false);
       setActiveSection('mercado');
       loadOne(match.codigo).catch(() => undefined);
-      setMessage({ type: 'success', text: `Codigo detectado: ${code}` });
+      setMessage({
+        type: 'success',
+        text: `Codigo detectado: ${code} · ${match.descripcion || 'Sin descripcion'} · ${formatCurrency(match.precioFinal)}`
+      });
     } else {
       setActiveSection('mercado');
       setCreateOpen(true);
@@ -2767,6 +2868,7 @@ function App() {
                         <p className="eyebrow">Articulo seleccionado</p>
                         <h2>{selected.descripcion}</h2>
                         <code>{selected.codigo}</code>
+                        <p className="ops-empty">Precio: <strong>{formatCurrency(selected.precioFinal)}</strong></p>
                       </div>
                       <div className="ops-actions">
                         <strong className={selected.stockCritico ? 'critical' : ''}>Stock {selected.stock}</strong>

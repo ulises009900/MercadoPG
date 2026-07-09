@@ -53585,15 +53585,25 @@
     }).format(Number(value || 0));
   }
   function readJson(key, fallback) {
+    var _a2;
     try {
-      const raw = localStorage.getItem(key);
+      const raw = (_a2 = localStorage.getItem(key)) != null ? _a2 : sessionStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
     } catch {
       return fallback;
     }
   }
   function writeJson(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
+    const str = JSON.stringify(value);
+    try {
+      localStorage.setItem(key, str);
+      return;
+    } catch {
+    }
+    try {
+      sessionStorage.setItem(key, str);
+    } catch {
+    }
   }
   function nextId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -53912,6 +53922,7 @@
     const scanIntervalRef = (0, import_react.useRef)(null);
     const barcodeDetectorRef = (0, import_react.useRef)(null);
     const zxingReaderRef = (0, import_react.useRef)(null);
+    const lastOfflineBackupSyncRef = (0, import_react.useRef)(0);
     const backupAutoPasteRef = (0, import_react.useRef)("");
     async function loadDriveDir() {
       try {
@@ -54039,7 +54050,7 @@
       return null;
     }
     function parseBackupPayloadText(text) {
-      const cleaned = text.trim();
+      const cleaned = String(text || "").trim().replace(/^\)\]\}'\s*/, "");
       if (!cleaned) {
         throw new Error("El archivo descargado est\xE1 vac\xEDo.");
       }
@@ -54196,16 +54207,27 @@
       }
       const info = extractDriveResource(url);
       if (!info) {
-        setMessage({ type: "error", text: "Ingres\xE1 una URL de carpeta o archivo de Drive v\xE1lida." });
+        if (/^https?:\/\//i.test(url)) {
+          await loadBackupFromUrl(url, { backupMarker: `url:${url}` });
+          return;
+        }
+        setMessage({ type: "error", text: "Ingres\xE1 una URL de carpeta/archivo de Drive o un enlace directo a backup JSON." });
         return;
       }
       if (info.type === "file") {
         await loadDriveBackupFile(info.id, { backupMarker: `file:${info.id}` });
         return;
       }
+      if (driveToken) {
+        const latest = await resolveLatestBackupFromFolder(info.id);
+        if (latest == null ? void 0 : latest.id) {
+          await loadDriveBackupFile(latest.id, { backupMarker: `folder:${info.id}:${latest.id}:${latest.modifiedTime || ""}` });
+          return;
+        }
+      }
       setMessage({
         type: "info",
-        text: '\u26A0\uFE0F Pegaste un link de carpeta. Para que funcione sin abrir Drive: abr\xED esa carpeta en el navegador de la PC, busc\xE1 el archivo "backup_latest.json", hac\xE9 clic derecho \u2192 Compartir \u2192 Copiar enlace, y peg\xE1 ese link directo aqu\xED.'
+        text: '\u26A0\uFE0F Pegaste un link de carpeta. Conect\xE1 Google Drive para leerla autom\xE1ticamente, o peg\xE1 el enlace directo del archivo "backup_latest.json".'
       });
     }
     function normalizeBackupData(rawData) {
@@ -54242,12 +54264,41 @@
         const rawData = await downloadDriveBackupPayload(fileId);
         const data = normalizeBackupData(rawData);
         if (data && Array.isArray(data.articulos)) {
-          applyBackupPayload(data, { silent, backupMarker });
+          const marker = backupMarker ? `${backupMarker}:${String(data.timestamp || "")}` : `file:${fileId}:${String(data.timestamp || "")}`;
+          applyBackupPayload(data, { silent, backupMarker: marker });
           if (closeSettings) {
             setSettingsOpen(false);
           }
         } else {
           throw new Error("El archivo descargado no tiene un formato de backup compatible de MercadoPG.");
+        }
+      } catch (err) {
+        if (!silent) {
+          setMessage({ type: "error", text: `Error al cargar backup: ${err.message}` });
+        }
+      } finally {
+        setDriveBusy(false);
+      }
+    }
+    async function loadBackupFromUrl(url, options = {}) {
+      const { silent = false, closeSettings = true, backupMarker = "" } = options;
+      setDriveBusy(true);
+      try {
+        const response = await fetch(String(url || "").trim(), { redirect: "follow", cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`No se pudo descargar el backup (HTTP ${response.status}).`);
+        }
+        const text = await response.text();
+        const rawData = parseBackupPayloadText(text);
+        const data = normalizeBackupData(rawData);
+        if (data && Array.isArray(data.articulos)) {
+          const marker = backupMarker ? `${backupMarker}:${String(data.timestamp || "")}` : `url:${String(url || "").trim()}:${String(data.timestamp || "")}`;
+          applyBackupPayload(data, { silent, backupMarker: marker });
+          if (closeSettings) {
+            setSettingsOpen(false);
+          }
+        } else {
+          throw new Error("El enlace descarg\xF3 contenido, pero no es un backup compatible de MercadoPG.");
         }
       } catch (err) {
         if (!silent) {
@@ -54267,16 +54318,26 @@
       }
       const info = extractDriveResource(url);
       if (!info) {
+        if (/^https?:\/\//i.test(url)) {
+          await loadBackupFromUrl(url, { silent: true, closeSettings: false, backupMarker: `url:${url}` });
+        }
         return;
       }
       try {
         if (info.type === "file") {
           const marker = `file:${info.id}`;
-          if (localStorage.getItem(DRIVE_LAST_BACKUP_KEY) === marker) {
-            return;
-          }
           await loadDriveBackupFile(info.id, { silent: true, closeSettings: false, backupMarker: marker });
           return;
+        }
+        if (driveToken) {
+          const latest = await resolveLatestBackupFromFolder(info.id);
+          if (latest == null ? void 0 : latest.id) {
+            const marker = `folder:${info.id}:${latest.id}:${latest.modifiedTime || ""}`;
+            if (localStorage.getItem(DRIVE_LAST_BACKUP_KEY) === marker) {
+              return;
+            }
+            await loadDriveBackupFile(latest.id, { silent: true, closeSettings: false, backupMarker: marker });
+          }
         }
       } catch {
       }
@@ -54371,6 +54432,12 @@
     function normalizeServerItem(item) {
       const normalized = normalizeItem(item);
       const imageUrl = String(normalized.imagenUrl || "").trim();
+      if (imageUrl && !imageUrl.startsWith("data:") && !isAbsoluteUrl(imageUrl)) {
+        const fileName = extractImageName(imageUrl);
+        if (fileName && imageMapRef.current[fileName]) {
+          return { ...normalized, imagenUrl: imageMapRef.current[fileName] };
+        }
+      }
       if (imageUrl.startsWith("/api/")) {
         return {
           ...normalized,
@@ -54498,10 +54565,15 @@
       const normalizedItems = (data.articulos || []).map((item) => {
         const normalized = normalizeItem(item);
         const sourceImage = item.imagenUrl || item.imagenName || "";
-        return {
-          ...normalized,
-          imagenUrl: resolveBackupImageUrl(sourceImage, backupImages)
-        };
+        const resolvedUrl = resolveBackupImageUrl(sourceImage, backupImages);
+        let imagenUrl;
+        if (resolvedUrl && resolvedUrl.startsWith("data:")) {
+          const fn = extractImageName(sourceImage);
+          imagenUrl = fn ? `/api/images/${encodeURIComponent(fn)}` : null;
+        } else {
+          imagenUrl = resolvedUrl || null;
+        }
+        return { ...normalized, imagenUrl };
       });
       persistCache(normalizedItems);
       if (data.catalogs) persistCatalogs(data.catalogs);
@@ -54551,6 +54623,7 @@
         return true;
       } catch {
         setStatus((prev) => ({ ...prev, offline: true }));
+        syncDriveFallbackOnDisconnect();
         return false;
       }
     }
@@ -54600,6 +54673,14 @@
     async function syncSnapshotFromPc() {
       return downloadSnapshotFromPc({ silent: true });
     }
+    function syncDriveFallbackOnDisconnect() {
+      const now = Date.now();
+      if (now - lastOfflineBackupSyncRef.current < 1e4) {
+        return;
+      }
+      lastOfflineBackupSyncRef.current = now;
+      syncLatestBackupSilently().catch(() => void 0);
+    }
     async function loadCatalogs() {
       try {
         const data = await fetchJson("/api/catalogos");
@@ -54608,6 +54689,7 @@
         applyThemeFromConfig(data.config);
       } catch {
         setStatus((prev) => ({ ...prev, offline: true }));
+        syncDriveFallbackOnDisconnect();
         const cachedCatalogs = readJson(CATALOGS_KEY, { config: {} });
         setCatalogs(cachedCatalogs);
         setCreateForm((prev) => ({ ...defaultCreateForm(cachedCatalogs.config || {}), ...prev }));
@@ -54626,7 +54708,7 @@
             setItems(normalized);
           }
           if (selectedCode) {
-            const baseItems = query ? readJson(CACHE_KEY, []).map(normalizeItem) : normalized;
+            const baseItems = query ? readJson(CACHE_KEY, []).map(normalizeServerItem) : normalized;
             const nextSelected = baseItems.find((item) => item.codigo === selectedCode) || normalized.find((item) => item.codigo === selectedCode) || null;
             setSelected(nextSelected);
           }
@@ -54638,9 +54720,10 @@
           if (!query) return true;
           const needle = query.toLowerCase();
           return item.codigo.toLowerCase().includes(needle) || item.descripcion.toLowerCase().includes(needle);
-        });
+        }).map(normalizeServerItem);
         setItems(filtered);
         setStatus((prev) => ({ ...prev, offline: true }));
+        syncDriveFallbackOnDisconnect();
       } finally {
         setLoading(false);
       }
@@ -54661,7 +54744,8 @@
         setStatus((prev) => ({ ...prev, offline: false }));
       } catch {
         const cached = readJson(CACHE_KEY, []);
-        const data = cached.find((item) => item.codigo === codigo) || null;
+        const rawCached = cached.find((item) => item.codigo === codigo) || null;
+        const data = rawCached ? normalizeServerItem(rawCached) : null;
         if (data) {
           setSelectedCode(data.codigo);
           setSelected(data);
@@ -55525,7 +55609,10 @@
         setCreateOpen(false);
         setActiveSection("mercado");
         loadOne(match.codigo).catch(() => void 0);
-        setMessage({ type: "success", text: `Codigo detectado: ${code}` });
+        setMessage({
+          type: "success",
+          text: `Codigo detectado: ${code} \xB7 ${match.descripcion || "Sin descripcion"} \xB7 ${formatCurrency(match.precioFinal)}`
+        });
       } else {
         setActiveSection("mercado");
         setCreateOpen(true);
@@ -55771,7 +55858,7 @@
         }
       ) : /* @__PURE__ */ import_react.default.createElement("div", { className: "card-thumb placeholder" }, "Sin foto"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h3", null, item.descripcion), /* @__PURE__ */ import_react.default.createElement("code", null, item.codigo))), /* @__PURE__ */ import_react.default.createElement("strong", { className: item.stockCritico ? "critical" : "" }, item.stock, " u.")),
       /* @__PURE__ */ import_react.default.createElement("div", { className: "metrics" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "metric" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Precio"), /* @__PURE__ */ import_react.default.createElement("strong", null, formatCurrency(item.precioFinal))), /* @__PURE__ */ import_react.default.createElement("div", { className: "metric" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Minimo"), /* @__PURE__ */ import_react.default.createElement("strong", null, item.stockMinimo)), /* @__PURE__ */ import_react.default.createElement("div", { className: "metric" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Estado"), /* @__PURE__ */ import_react.default.createElement("strong", { className: item.stockCritico ? "critical" : "" }, item.stockCritico ? "Critico" : "OK")))
-    ))), /* @__PURE__ */ import_react.default.createElement("section", { className: `detail ${selected ? "detail-sheet" : ""}` }, !selected ? /* @__PURE__ */ import_react.default.createElement("div", { className: "empty" }, "Eleg\xED un art\xEDculo para ver su detalle. Toc\xE1 el mismo art\xEDculo nuevamente para minimizar.") : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head detail-sheet-head" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("p", { className: "eyebrow" }, "Articulo seleccionado"), /* @__PURE__ */ import_react.default.createElement("h2", null, selected.descripcion), /* @__PURE__ */ import_react.default.createElement("code", null, selected.codigo)), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("strong", { className: selected.stockCritico ? "critical" : "" }, "Stock ", selected.stock), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: () => {
+    ))), /* @__PURE__ */ import_react.default.createElement("section", { className: `detail ${selected ? "detail-sheet" : ""}` }, !selected ? /* @__PURE__ */ import_react.default.createElement("div", { className: "empty" }, "Eleg\xED un art\xEDculo para ver su detalle. Toc\xE1 el mismo art\xEDculo nuevamente para minimizar.") : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-head detail-sheet-head" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("p", { className: "eyebrow" }, "Articulo seleccionado"), /* @__PURE__ */ import_react.default.createElement("h2", null, selected.descripcion), /* @__PURE__ */ import_react.default.createElement("code", null, selected.codigo), /* @__PURE__ */ import_react.default.createElement("p", { className: "ops-empty" }, "Precio: ", /* @__PURE__ */ import_react.default.createElement("strong", null, formatCurrency(selected.precioFinal)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "ops-actions" }, /* @__PURE__ */ import_react.default.createElement("strong", { className: selected.stockCritico ? "critical" : "" }, "Stock ", selected.stock), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "secondary", onClick: () => {
       setSelectedCode(null);
       setSelected(null);
     } }, "Cerrar"))), selected.imagenUrl ? /* @__PURE__ */ import_react.default.createElement("div", { className: "detail-media" }, /* @__PURE__ */ import_react.default.createElement(
