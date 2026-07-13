@@ -186,37 +186,64 @@ class BackupService {
   }
 
   getPaths() {
-    // Determinar rutas (compatible con dev y prod)
-    const basePath = (app && app.isPackaged) ? app.getPath('userData') : process.cwd();
-    const dataPath = path.join(basePath, 'Data');
-    const dbPath = path.join(dataPath, 'Stok.db');
+    // Tomar la misma ruta de BD activa que usa la app para evitar desalineaciones.
+    const dbPath = db.getDatabasePath();
+    const dataPath = path.dirname(dbPath);
     const imagesPath = path.join(dataPath, 'Images');
+    const localBackupDir = path.join(dataPath, 'Backups');
     const driveBackupDir = this.resolveDriveBackupDir();
-
-    // SOLO respaldos en Drive - no permitir respaldos locales
-    if (!driveBackupDir) {
-      return {
-        dbPath,
-        imagesPath,
-        backupDir: null,
-        backupSource: 'none',
-        error: 'Google Drive no está sincronizado en esta PC. Por favor, instale Google Drive Desktop y sincronice su carpeta.'
-      };
-    }
 
     if (!fs.existsSync(dataPath)) {
       fs.mkdirSync(dataPath, { recursive: true });
     }
+
+    if (!fs.existsSync(localBackupDir)) {
+      fs.mkdirSync(localBackupDir, { recursive: true });
+    }
     
-    if (!fs.existsSync(driveBackupDir)) {
+    if (driveBackupDir && !fs.existsSync(driveBackupDir)) {
       fs.mkdirSync(driveBackupDir, { recursive: true });
     }
+
     return {
       dbPath,
       imagesPath,
-      backupDir: driveBackupDir,
-      backupSource: 'drive'
+      localBackupDir,
+      driveBackupDir,
+      backupDir: localBackupDir,
+      backupSource: driveBackupDir ? 'local+drive' : 'local'
     };
+  }
+
+  async crearRespaldoEnDirectorio(backupRootDir, dbPath, imagesPath, timestamp, mobileSnapshotJson) {
+    const backupName = `backup_${timestamp}`;
+    const currentBackupDir = path.join(backupRootDir, backupName);
+    if (!fs.existsSync(currentBackupDir)) {
+      fs.mkdirSync(currentBackupDir, { recursive: true });
+    }
+
+    const dbBackupPath = path.join(currentBackupDir, 'Stok.db');
+
+    if (db.db && db.db.open) {
+      await db.getConnection().backup(dbBackupPath);
+    } else if (fs.existsSync(dbPath)) {
+      fs.copyFileSync(dbPath, dbBackupPath);
+    }
+
+    const imagesBackupPath = path.join(currentBackupDir, 'Images');
+    if (fs.existsSync(imagesPath)) {
+      this.copyRecursiveSync(imagesPath, imagesBackupPath);
+    }
+
+    const mobileSnapshotPath = path.join(currentBackupDir, 'backup_mobile_full.json');
+    fs.writeFileSync(mobileSnapshotPath, mobileSnapshotJson, 'utf8');
+
+    const latestSnapshotPath = path.join(backupRootDir, 'backup_latest.json');
+    fs.writeFileSync(latestSnapshotPath, mobileSnapshotJson, 'utf8');
+
+    this.limpiarRespaldosAntiguos(backupRootDir);
+
+    return currentBackupDir;
   }
 
   getLatestBackupPath(backupDir) {
@@ -256,63 +283,46 @@ class BackupService {
 
   async crearRespaldo() {
     const paths = this.getPaths();
-    
-    // Validar que Drive esté sincronizado
-    if (!paths.backupDir || paths.error) {
-      return { 
-        success: false, 
-        error: paths.error || 'No se puede crear respaldo sin Drive sincronizado' 
-      };
-    }
 
-    const { dbPath, imagesPath, backupDir } = paths;
+    const { dbPath, imagesPath, localBackupDir, driveBackupDir } = paths;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    
-    // Ahora el respaldo será una CARPETA, no un archivo suelto
-    const backupName = `backup_${timestamp}`;
-    const currentBackupDir = path.join(backupDir, backupName);
-
-    // Crear carpeta para este respaldo específico
-    if (!fs.existsSync(currentBackupDir)) fs.mkdirSync(currentBackupDir, { recursive: true });
 
     try {
-      // 1. Respaldar Base de Datos
-      const dbBackupPath = path.join(currentBackupDir, 'Stok.db');
-      
-      // Si la BD está abierta, usar la API de backup de SQLite
-      if (db.db && db.db.open) {
-        await db.getConnection().backup(dbBackupPath);
-      } else {
-        // Si está cerrada o no inicializada, copia de archivo directa
-        if (fs.existsSync(dbPath)) {
-          fs.copyFileSync(dbPath, dbBackupPath);
-        } else {
-          // Si no hay DB, al menos seguimos con las imágenes
-        }
-      }
-      
-      // 2. Respaldar Imágenes (Copia recursiva)
-      const imagesBackupPath = path.join(currentBackupDir, 'Images');
-      if (fs.existsSync(imagesPath)) {
-        this.copyRecursiveSync(imagesPath, imagesBackupPath);
-      }
-
-      // 3. Guardar snapshot JSON compatible con la app del telefono
-      const mobileSnapshotPath = path.join(currentBackupDir, 'backup_mobile_full.json');
       const mobileSnapshot = this.buildMobileSnapshot();
       const mobileSnapshotJson = JSON.stringify(mobileSnapshot, null, 2);
-      fs.writeFileSync(mobileSnapshotPath, mobileSnapshotJson, 'utf8');
 
-      // 4. Siempre sobreescribir backup_latest.json en la raiz de la carpeta de backups
-      // Este archivo tiene siempre el mismo nombre → su ID de Drive nunca cambia
-      // El usuario lo comparte UNA sola vez y el telefono siempre descarga desde ese link fijo
-      const latestSnapshotPath = path.join(backupDir, 'backup_latest.json');
-      fs.writeFileSync(latestSnapshotPath, mobileSnapshotJson, 'utf8');
+      // 1) Siempre crear respaldo local en la ruta original de la app
+      const localPath = await this.crearRespaldoEnDirectorio(
+        localBackupDir,
+        dbPath,
+        imagesPath,
+        timestamp,
+        mobileSnapshotJson
+      );
 
-      // Mantener solo los últimos 10 respaldos
-      this.limpiarRespaldosAntiguos(backupDir);
+      // 2) Si hay carpeta de Drive configurada, crear un segundo respaldo allí
+      let drivePath = null;
+      if (driveBackupDir) {
+        try {
+          drivePath = await this.crearRespaldoEnDirectorio(
+            driveBackupDir,
+            dbPath,
+            imagesPath,
+            timestamp,
+            mobileSnapshotJson
+          );
+        } catch (driveError) {
+          console.error('Error creando respaldo en Drive:', driveError);
+        }
+      }
 
-      return { success: true, path: currentBackupDir };
+      return {
+        success: true,
+        path: localPath,
+        localPath,
+        drivePath,
+        backupTargets: drivePath ? ['local', 'drive'] : ['local']
+      };
     } catch (error) {
       console.error('Error en respaldo:', error);
       return { success: false, error: error.message };
@@ -321,20 +331,28 @@ class BackupService {
 
   restaurarUltimoRespaldo(reabrir = false) {
     const paths = this.getPaths();
-    
-    // Validar que Drive esté sincronizado
-    if (!paths.backupDir || paths.error) {
-      return { 
-        success: false, 
-        error: paths.error || 'No se puede restaurar sin Drive sincronizado' 
-      };
+
+    const { dbPath, imagesPath, localBackupDir, driveBackupDir } = paths;
+    const candidateDirs = [localBackupDir];
+    if (driveBackupDir) {
+      candidateDirs.push(driveBackupDir);
     }
 
-    const { dbPath, imagesPath, backupDir } = paths;
-    if (!fs.existsSync(backupDir)) return { success: false, error: 'No existe carpeta de respaldos en Drive' };
+    let ultimoBackupPath = null;
+    let backupOrigin = null;
+    for (const dir of candidateDirs) {
+      if (!dir || !fs.existsSync(dir)) {
+        continue;
+      }
+      const candidate = this.getLatestBackupPath(dir);
+      if (candidate) {
+        ultimoBackupPath = candidate;
+        backupOrigin = dir === localBackupDir ? 'local' : 'drive';
+        break;
+      }
+    }
 
-    const ultimoBackupPath = this.getLatestBackupPath(backupDir);
-    if (!ultimoBackupPath) return { success: false, error: 'No hay respaldos para restaurar' };
+    if (!ultimoBackupPath) return { success: false, error: 'No hay respaldos para restaurar (ni local ni Drive)' };
     const stats = fs.statSync(ultimoBackupPath);
 
     try {
@@ -370,7 +388,7 @@ class BackupService {
         db.initialize(); // Reabrir si se solicita (ej. restauración manual)
       }
       
-      return { success: true, source: ultimoBackupPath };
+      return { success: true, source: ultimoBackupPath, origin: backupOrigin };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -408,10 +426,7 @@ class BackupService {
 
   async abrirCarpeta() {
     const paths = this.getPaths();
-    if (!paths.backupDir || paths.error) {
-      throw new Error(paths.error || 'No se puede abrir carpeta sin Drive sincronizado');
-    }
-    await shell.openPath(paths.backupDir);
+    await shell.openPath(paths.localBackupDir);
   }
 }
 

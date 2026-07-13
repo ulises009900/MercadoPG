@@ -557,7 +557,12 @@ app.on('window-all-closed', () => {
     db.close();
     
     services.BackupService.crearRespaldo().then(res => {
-      if (res.success) console.log('✓ Respaldo creado al cerrar:', res.path);
+      if (res.success) {
+        console.log('✓ Respaldo local creado al cerrar:', res.localPath || res.path);
+        if (res.drivePath) {
+          console.log('✓ Respaldo en Drive creado al cerrar:', res.drivePath);
+        }
+      }
       else console.error('Error creando respaldo al cerrar:', res.error);
     }).catch(err => console.error(err)).finally(async () => {
       try {

@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { app } = require('electron');
 
 /**
@@ -45,14 +46,43 @@ class DatabaseRepository {
    * @returns {string}
    */
   getDatabasePath() {
-    // En producción (instalado) usamos AppData para tener permisos de escritura.
-    // En desarrollo usamos la carpeta local del proyecto.
-    const basePath = (app && app.isPackaged) ? app.getPath('userData') : process.cwd();
-    const appDataPath = path.join(basePath, 'Data');
-    if (!fs.existsSync(appDataPath)) {
-      fs.mkdirSync(appDataPath, { recursive: true });
+    // En algunos equipos con carpetas redirigidas (OneDrive/Drive) mkdir puede fallar con ENOENT.
+    // Probamos varias ubicaciones y usamos la primera escribible.
+    const candidates = [];
+    const customDataDir = process.env.MERCADOPG_DB_DIR;
+    if (customDataDir) {
+      candidates.push(customDataDir);
     }
-    return path.join(appDataPath, 'Stok.db');
+
+    const cwd = process.cwd();
+    if (cwd) {
+      candidates.push(path.join(cwd, 'Data'));
+    }
+
+    if (app && typeof app.getPath === 'function') {
+      candidates.push(path.join(app.getPath('userData'), 'Data'));
+    }
+
+    const localAppData = process.env.LOCALAPPDATA;
+    if (localAppData) {
+      candidates.push(path.join(localAppData, 'MercadoPG', 'Data'));
+    }
+
+    candidates.push(path.join(os.tmpdir(), 'MercadoPG', 'Data'));
+
+    const uniqueCandidates = [...new Set(candidates.filter(Boolean))];
+
+    for (const dataDir of uniqueCandidates) {
+      try {
+        fs.mkdirSync(dataDir, { recursive: true });
+        fs.accessSync(dataDir, fs.constants.R_OK | fs.constants.W_OK);
+        return path.join(dataDir, 'Stok.db');
+      } catch (error) {
+        console.warn(`No se pudo usar carpeta de datos: ${dataDir}`, error.message);
+      }
+    }
+
+    throw new Error(`No se encontró una carpeta escribible para la BD. Rutas intentadas: ${uniqueCandidates.join(' | ')}`);
   }
 
   /**
@@ -63,6 +93,7 @@ class DatabaseRepository {
     console.log('Inicializando conexión a base de datos...');
 
     const dbPath = this.getDatabasePath();
+    console.log(`Ruta de base de datos seleccionada: ${dbPath}`);
     let dbExists = fs.existsSync(dbPath);
 
     if (dbExists && !this.isSqliteDatabaseFile(dbPath)) {
